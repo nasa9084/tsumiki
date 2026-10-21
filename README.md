@@ -1,7 +1,8 @@
 # tsumiki
 
-Go製のコードCAD。Fusionのように操作(スケッチ → 押し出し/回転 → 結合/切り取り)を順に積み重ねる履歴型APIで、
-3D印刷用の3MF/STLを出力する。カーネルも自作(STEPは非対応、内部表現はメッシュ)。
+A code CAD library written in Go. Like Fusion, you stack operations in order
+(sketch → extrude/revolve → join/cut) through a history-style API, and export 3MF/STL for 3D printing.
+The geometry kernel is written from scratch (no STEP support; the internal representation is a mesh).
 
 ```go
 p := tsumiki.NewPart("plate")
@@ -11,29 +12,30 @@ p.Mesh().Save3MF("plate.3mf", "plate")
 fmt.Print(p.Timeline())
 ```
 
-## 機能
+## Features
 
-- 2Dスケッチ: 多角形・円・角丸四角・線/円弧パス(入れ子はeven-oddで穴になる)
-- 押し出し(テーパー付き)・回転、結合/切り取り/交差
-- 3MF / バイナリSTL出力、水密性・体積の検証
+- 2D sketches: polygons, circles, rounded rectangles, line/arc paths (nesting is resolved even-odd, so inner loops become holes)
+- Extrude (with taper) and revolve; join, cut and intersect
+- 3MF and binary STL export; watertightness and volume checks
 
-## ブール演算
+## Booleans
 
-平面ベースの厳密BSP。入力を1µm格子に丸め、整数の平面と辺平面で多角形を表現して符号判定を厳密に行うため、
-共面・接触ケースでも長い操作の連鎖でも隙間(クラック)が出ない。ランダム生成した共面だらけの形状で
-集合代数の体積恒等式を検証している(`stress_test.go`)。
+Booleans use an exact plane-based BSP. Inputs are snapped to a 1 µm lattice, and polygons are represented by
+integer planes plus edge planes so that all side tests are exact. Coplanar and touching cases, and long chains of
+operations, produce no cracks. The set-algebra volume identities are checked on randomly generated, coplanar-heavy
+shapes (`stress_test.go`).
 
-制約: 座標は±500 mm、1 µm丸め。大きなメッシュへのブール1回は数百ms。
+Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One boolean on a large mesh takes a few hundred ms.
 
-## 例
+## Example
 
-`cmd/guard`: プレステラ90用ガード(364個の六角穴・100個の凹みを含む半割り板付き部品)を13工程で再現する。
+`cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.
 
 ```sh
-go run ./cmd/guard ./out   # out/ に 3MF と STL を書き出す
+go run ./cmd/guard ./out   # writes a 3MF and an STL to ./out
 ```
 
-## テスト
+## Tests
 
 ```sh
 go test ./...
