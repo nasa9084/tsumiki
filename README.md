@@ -41,3 +41,7 @@ go run ./cmd/guard ./out   # writes a 3MF and an STL to ./out
 go test ./...
 STRESS_N=400 go test -run TestBooleanRandom -v
 ```
+
+## License
+
+MIT
