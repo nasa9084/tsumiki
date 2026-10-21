@@ -230,7 +230,8 @@ func TestMeshToSolidRejectsOutOfRangeMesh(t *testing.T) {
 }
 
 func TestBoolOperationString(t *testing.T) {
-	for operation, want := range map[BoolOperation]string{OperationJoin: "join", OperationCut: "cut", OperationIntersect: "intersect"} {
+	names := map[BoolOperation]string{OperationJoin: "join", OperationCut: "cut", OperationIntersect: "intersect"}
+	for operation, want := range names {
 		if got := operation.String(); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

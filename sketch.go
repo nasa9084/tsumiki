@@ -69,10 +69,7 @@ func (s *Sketch) Polygon(points ...Vector2) *Sketch {
 
 // Circle adds a circle tessellated within the sketch tolerance.
 func (s *Sketch) Circle(centerX, centerY, radius float64) *Sketch {
-	n := arcSteps(radius, 2*math.Pi, s.Tolerance)
-	if n < 8 {
-		n = 8
-	}
+	n := max(arcSteps(radius, 2*math.Pi, s.Tolerance), 8)
 	l := make(Loop, n)
 	for i := range l {
 		a := 2 * math.Pi * float64(i) / float64(n)
@@ -196,10 +193,7 @@ func arcSteps(radius, sweep, tolerance float64) int {
 	if radius > tolerance {
 		deltaAngle = 2 * math.Acos(1-tolerance/radius)
 	}
-	n := int(math.Ceil(sweep / deltaAngle))
-	if n < 1 {
-		n = 1
-	}
+	n := max(int(math.Ceil(sweep/deltaAngle)), 1)
 	return n
 }
 

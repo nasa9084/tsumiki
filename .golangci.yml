@@ -1,17 +1,19 @@
 version: "2"
 
 linters:
-  # errcheck, govet, ineffassign, staticcheck and unused are on by default; add a few more.
+  # The default set (errcheck, govet, ineffassign, staticcheck, unused) plus the ones below.
   enable:
-    - misspell
-    - unconvert
-    - unparam
-    - bodyclose
-  settings:
-    misspell:
-      locale: US
-    govet:
-      enable-all: false
+    - dogsled
+    - errname
+    - exhaustive
+    - exptostd
+    - funlen
+    - goconst
+    - godoclint
+    - godot
+    - govet
+    - lll
+    - modernize
 
 formatters:
   enable:

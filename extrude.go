@@ -105,56 +105,66 @@ func revolveMesh(plane Plane, regions []Region, angleDegrees, tolerance float64)
 	sweep := Radians(math.Min(angleDegrees, 360))
 	m := &Mesh{}
 	for _, r := range regions {
-		loops := append([]Loop{r.Outer}, r.Holes...)
-		points, triangles := triangulateRegion(r.Outer, r.Holes)
-		maxRadius := 0.0
-		for _, p := range points {
-			maxRadius = math.Max(maxRadius, math.Abs(p.X))
-		}
-		steps := arcSteps(maxRadius, sweep, tolerance)
-		if steps < 3 && full {
-			steps = 3
-		}
-		rings := steps + 1
-		if full {
-			rings = steps
-		}
-		regionMesh := &Mesh{}
-		n := len(points)
-		for k := 0; k < rings; k++ {
-			angle := sweep * float64(k) / float64(steps)
-			s, c := math.Sincos(angle)
-			for _, p := range points {
-				// rotate U about V by angle (right-handed): U cos - Normal sin
-				regionMesh.Vertices = append(regionMesh.Vertices, plane.Origin.Add(plane.U.Scale(p.X*c)).Add(plane.Normal.Scale(-p.X*s)).Add(plane.V.Scale(p.Y)))
-			}
-		}
-		for k := 0; k < steps; k++ {
-			currentRing, nextRing := k, k+1
-			if full && nextRing == rings {
-				nextRing = 0
-			}
-			base := 0
-			for _, l := range loops {
-				for i := range l {
-					a, b := base+i, base+(i+1)%len(l)
-					currentA, currentB := currentRing*n+a, currentRing*n+b
-					nextB, nextA := nextRing*n+b, nextRing*n+a
-					regionMesh.Triangles = append(regionMesh.Triangles, Triangle{currentA, nextB, currentB}, Triangle{currentA, nextA, nextB})
-				}
-				base += len(l)
-			}
-		}
-		if !full {
-			last := steps * n
-			for _, t := range triangles {
-				regionMesh.Triangles = append(regionMesh.Triangles, Triangle{t[0], t[1], t[2]})
-				regionMesh.Triangles = append(regionMesh.Triangles, Triangle{t[0] + last, t[2] + last, t[1] + last})
-			}
-		}
-		m.merge(regionMesh)
+		m.merge(revolveRegion(plane, r, sweep, full, tolerance))
 	}
 	m.Weld(weldEpsilon) // collapse points on the axis
 	m.dropDegenerate()
 	return m
+}
+
+// revolveRegion sweeps one region by sweep radians; a full turn closes on itself instead of capping.
+func revolveRegion(plane Plane, r Region, sweep float64, full bool, tolerance float64) *Mesh {
+	points, triangles := triangulateRegion(r.Outer, r.Holes)
+	maxRadius := 0.0
+	for _, p := range points {
+		maxRadius = math.Max(maxRadius, math.Abs(p.X))
+	}
+	steps := arcSteps(maxRadius, sweep, tolerance)
+	if steps < 3 && full {
+		steps = 3
+	}
+	rings := steps + 1
+	if full {
+		rings = steps
+	}
+	regionMesh := &Mesh{}
+	for k := range rings {
+		s, c := math.Sincos(sweep * float64(k) / float64(steps))
+		for _, p := range points {
+			// rotate U about V by angle (right-handed): U cos - Normal sin
+			regionMesh.Vertices = append(regionMesh.Vertices,
+				plane.Origin.Add(plane.U.Scale(p.X*c)).Add(plane.Normal.Scale(-p.X*s)).Add(plane.V.Scale(p.Y)))
+		}
+	}
+	loops := append([]Loop{r.Outer}, r.Holes...)
+	n := len(points)
+	for k := range steps {
+		nextRing := k + 1
+		if full && nextRing == rings {
+			nextRing = 0
+		}
+		regionMesh.addSweptWalls(loops, k, nextRing, n)
+	}
+	if !full {
+		last := steps * n
+		for _, t := range triangles {
+			regionMesh.Triangles = append(regionMesh.Triangles,
+				Triangle{t[0], t[1], t[2]}, Triangle{t[0] + last, t[2] + last, t[1] + last})
+		}
+	}
+	return regionMesh
+}
+
+// addSweptWalls joins ring currentRing to ring nextRing along every loop edge; each ring has n points.
+func (m *Mesh) addSweptWalls(loops []Loop, currentRing, nextRing, n int) {
+	base := 0
+	for _, l := range loops {
+		for i := range l {
+			a, b := base+i, base+(i+1)%len(l)
+			currentA, currentB := currentRing*n+a, currentRing*n+b
+			nextB, nextA := nextRing*n+b, nextRing*n+a
+			m.Triangles = append(m.Triangles, Triangle{currentA, nextB, currentB}, Triangle{currentA, nextA, nextB})
+		}
+		base += len(l)
+	}
 }

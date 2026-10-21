@@ -138,7 +138,8 @@ func (p *Part) Revolve(s *Sketch, angleDegrees float64, options ...FeatureOption
 			}
 		}
 	}
-	return p.apply(fmt.Sprintf("revolve %.4g°", angleDegrees), o.operation, revolveMesh(s.Plane, regions, angleDegrees, s.Tolerance))
+	return p.apply(fmt.Sprintf("revolve %.4g°", angleDegrees), o.operation,
+		revolveMesh(s.Plane, regions, angleDegrees, s.Tolerance))
 }
 
 // Combine joins/cuts/intersects another part into this one.
@@ -185,7 +186,9 @@ func (p *Part) Clone(name string) *Part {
 // Translate moves the body; the offset is rounded to the 1 µm lattice so the move is exact.
 func (p *Part) Translate(dx, dy, dz float64) *Part {
 	if len(p.solid) > 0 {
-		p.solid = p.solid.translate([3]int64{int64(math.Round(dx * lattice)), int64(math.Round(dy * lattice)), int64(math.Round(dz * lattice))})
+		p.solid = p.solid.translate([3]int64{
+			int64(math.Round(dx * lattice)), int64(math.Round(dy * lattice)), int64(math.Round(dz * lattice)),
+		})
 		p.mesh = nil
 	}
 	return p

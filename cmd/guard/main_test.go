@@ -130,7 +130,9 @@ func TestBuildMatchesTheReferenceModel(t *testing.T) {
 	}
 	lo, hi := part.Mesh().Bounds()
 	for name, pair := range map[string][2]float64{
-		"xmin": {lo.X, 0.7}, "xmax": {hi.X, 65}, "ymin": {lo.Y, -64.89}, "ymax": {hi.Y, 64.89}, "zmin": {lo.Z, -12}, "zmax": {hi.Z, 1.5},
+		"xmin": {lo.X, 0.7}, "xmax": {hi.X, 65},
+		"ymin": {lo.Y, -64.89}, "ymax": {hi.Y, 64.89},
+		"zmin": {lo.Z, -12}, "zmax": {hi.Z, 1.5},
 	} {
 		if math.Abs(pair[0]-pair[1]) > 0.01 {
 			t.Errorf("%s = %.3f, want %.3f", name, pair[0], pair[1])

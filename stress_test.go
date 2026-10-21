@@ -14,7 +14,7 @@ import (
 func randSolid(r *rand.Rand, parts int) *Part {
 	gridValue := func(lo, hi int) float64 { return float64(lo+r.Intn(hi-lo+1)) * 0.5 }
 	p := NewPart("rand")
-	for i := 0; i < parts; i++ {
+	for i := range parts {
 		z0 := gridValue(0, 6)
 		height := gridValue(1, 6)
 		var s *Sketch
@@ -29,9 +29,12 @@ func randSolid(r *rand.Rand, parts int) *Part {
 			s = NewSketch(XY(z0)).Circle(centerX, centerY, cornerRadius)
 			p.Name += fmt.Sprintf(" circle(%g,%g,%g)@z%g", centerX, centerY, cornerRadius, z0)
 		default:
-			centerX, centerY, width, height, cornerRadius, rotationDegrees := gridValue(-4, 4), gridValue(-4, 4), gridValue(4, 12), gridValue(4, 12), gridValue(1, 3), float64(r.Intn(4))*15
+			centerX, centerY := gridValue(-4, 4), gridValue(-4, 4)
+			width, height := gridValue(4, 12), gridValue(4, 12)
+			cornerRadius, rotationDegrees := gridValue(1, 3), float64(r.Intn(4))*15
 			s = NewSketch(XY(z0)).RoundedRect(centerX, centerY, width, height, cornerRadius, rotationDegrees)
-			p.Name += fmt.Sprintf(" rrect(%g,%g,%g,%g,r%g,rot%g)@z%g", centerX, centerY, width, height, cornerRadius, rotationDegrees, z0)
+			p.Name += fmt.Sprintf(" rrect(%g,%g,%g,%g,r%g,rot%g)@z%g",
+				centerX, centerY, width, height, cornerRadius, rotationDegrees, z0)
 		}
 		var opts []FeatureOption
 		if r.Intn(3) == 0 {
@@ -102,7 +105,8 @@ func TestBooleanRandomIdentities(t *testing.T) {
 			t.Errorf("%s: |A−B| = %.6f, |A|−|A∩B| = %.6f", tag, volumeCut, volumeA-volumeIntersection)
 		}
 	}
-	t.Logf("checked %d pairs, skipped %d invalid inputs, %d results with edge-contact non-manifold edges", checked, skipped, edgeContact)
+	t.Logf("checked %d pairs, skipped %d invalid inputs, %d results with edge-contact non-manifold edges",
+		checked, skipped, edgeContact)
 	if checked < n/2 {
 		t.Errorf("too few valid pairs (%d of %d): generator is not exercising the kernel", checked, n)
 	}
@@ -113,8 +117,8 @@ func TestBooleanManyHoles(t *testing.T) {
 	plate := NewPart("plate").Extrude(NewSketch(XY(0)).Rect(0, 0, 40, 40), 3)
 	want := plate.Report().Volume
 	hole := NewPart("hole").Extrude(NewSketch(XY(0)).Circle(0, 0, 1.2), 3).Report().Volume
-	for column := 0; column < 4; column++ {
-		for row := 0; row < 4; row++ {
+	for column := range 4 {
+		for row := range 4 {
 			plate.Extrude(NewSketch(XY(0)).Circle(float64(column)*5-7.5, float64(row)*5-7.5, 1.2), 3, Cut())
 		}
 	}

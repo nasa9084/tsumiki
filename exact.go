@@ -67,7 +67,7 @@ func latticeVertex(x, y, z int64) homogeneousVertex {
 func cross3(a, b [3]*big.Int) [3]*big.Int {
 	var r [3]*big.Int
 	t := new(big.Int)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		j, k := (i+1)%3, (i+2)%3
 		r[i] = new(big.Int).Mul(a[j], b[k])
 		r[i].Sub(r[i], t.Mul(a[k], b[j]))
@@ -83,7 +83,7 @@ func vertexOf(plane1, plane2, plane3 *integerPlane) (homogeneousVertex, bool) {
 	cross23, cross31, cross12 := cross3(normal2, normal3), cross3(normal3, normal1), cross3(normal1, normal2)
 	t := new(big.Int)
 	determinant := new(big.Int)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		determinant.Add(determinant, t.Mul(normal1[i], cross23[i]))
 	}
 	if determinant.Sign() == 0 {
@@ -91,7 +91,7 @@ func vertexOf(plane1, plane2, plane3 *integerPlane) (homogeneousVertex, bool) {
 	}
 	constant1, constant2, constant3 := bigInt(plane1.d), bigInt(plane2.d), bigInt(plane3.d)
 	var numerators [3]*big.Int
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		numerators[i] = new(big.Int).Mul(constant1, cross23[i])
 		numerators[i].Add(numerators[i], t.Mul(constant2, cross31[i]))
 		numerators[i].Add(numerators[i], t.Mul(constant3, cross12[i]))
@@ -102,7 +102,10 @@ func vertexOf(plane1, plane2, plane3 *integerPlane) (homogeneousVertex, bool) {
 			numerators[i].Neg(numerators[i])
 		}
 	}
-	return homogeneousVertex{numerators[0], numerators[1], numerators[2], determinant, ratio(numerators[0], determinant), ratio(numerators[1], determinant), ratio(numerators[2], determinant)}, true
+	return homogeneousVertex{
+		numerators[0], numerators[1], numerators[2], determinant,
+		ratio(numerators[0], determinant), ratio(numerators[1], determinant), ratio(numerators[2], determinant),
+	}, true
 }
 
 // side returns the sign of (a*x + b*y + c*z - d) at the vertex: +1 front, -1 back, 0 on the plane.
@@ -140,7 +143,8 @@ func snap(p Vector3) ([3]int64, error) {
 	var r [3]int64
 	for i, v := range c {
 		if math.Abs(v) > maxCoord || math.IsNaN(v) {
-			return r, fmt.Errorf("coordinate %.3f mm is outside the supported ±%.0f mm build volume", v/lattice, maxCoord/lattice)
+			return r, fmt.Errorf("coordinate %.3f mm is outside the supported ±%.0f mm build volume",
+				v/lattice, maxCoord/lattice)
 		}
 		r[i] = int64(math.Round(v))
 	}
@@ -150,7 +154,11 @@ func snap(p Vector3) ([3]int64, error) {
 func newTrianglePolygon(corners [3][3]int64) *exactPolygon {
 	subtract := func(a, b [3]int64) [3]int64 { return [3]int64{a[0] - b[0], a[1] - b[1], a[2] - b[2]} }
 	firstEdge, secondEdge := subtract(corners[1], corners[0]), subtract(corners[2], corners[0])
-	n := [3]int64{firstEdge[1]*secondEdge[2] - firstEdge[2]*secondEdge[1], firstEdge[2]*secondEdge[0] - firstEdge[0]*secondEdge[2], firstEdge[0]*secondEdge[1] - firstEdge[1]*secondEdge[0]}
+	n := [3]int64{
+		firstEdge[1]*secondEdge[2] - firstEdge[2]*secondEdge[1],
+		firstEdge[2]*secondEdge[0] - firstEdge[0]*secondEdge[2],
+		firstEdge[0]*secondEdge[1] - firstEdge[1]*secondEdge[0],
+	}
 	if n == [3]int64{} {
 		return nil
 	}
@@ -162,7 +170,7 @@ func newTrianglePolygon(corners [3][3]int64) *exactPolygon {
 			dominantAxis = k
 		}
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		a, b := corners[i], corners[(i+1)%3]
 		edgeVector := subtract(b, a)
 		var edgeNormal [3]int64
@@ -174,7 +182,8 @@ func newTrianglePolygon(corners [3][3]int64) *exactPolygon {
 		default: // e x y
 			edgeNormal = [3]int64{-edgeVector[2], 0, edgeVector[0]}
 		}
-		p.e = append(p.e, normalizePlane(edgeNormal[0], edgeNormal[1], edgeNormal[2], edgeNormal[0]*a[0]+edgeNormal[1]*a[1]+edgeNormal[2]*a[2]))
+		p.e = append(p.e, normalizePlane(edgeNormal[0], edgeNormal[1], edgeNormal[2],
+			edgeNormal[0]*a[0]+edgeNormal[1]*a[1]+edgeNormal[2]*a[2]))
 		p.v = append(p.v, latticeVertex(a[0], a[1], a[2]))
 	}
 	return p
@@ -208,7 +217,7 @@ func meshToSolid(m *Mesh) (Solid, error) {
 func (p *exactPolygon) flipped() *exactPolygon {
 	n := len(p.e)
 	q := &exactPolygon{p: p.p.neg(), e: make([]integerPlane, n), v: make([]homogeneousVertex, n)}
-	for j := 0; j < n; j++ {
+	for j := range n {
 		q.e[j] = p.e[n-1-j]
 		q.v[j] = p.v[(n-j)%n]
 	}
@@ -268,23 +277,9 @@ func splitPolygon(s *integerPlane, p *exactPolygon, coplanarFront, coplanarBack,
 // s itself as the closing edge. The run starts at the edge that crosses (or leaves) s into the
 // wanted side and ends at the edge that crosses back.
 func (p *exactPolygon) piece(s *integerPlane, tags []int8, n int, wantFront bool) *exactPolygon {
-	enter := func(i int) bool {
-		a, b := tags[i], tags[(i+1)%n]
-		if wantFront {
-			return a <= 0 && b > 0
-		}
-		return a >= 0 && b < 0
-	}
-	exit := func(i int) bool {
-		a, b := tags[i], tags[(i+1)%n]
-		if wantFront {
-			return a > 0 && b <= 0
-		}
-		return a < 0 && b >= 0
-	}
 	start := -1
-	for i := 0; i < n; i++ {
-		if enter(i) {
+	for i := range n {
+		if entersSide(tags, n, i, wantFront) {
 			start = i
 			break
 		}
@@ -292,41 +287,30 @@ func (p *exactPolygon) piece(s *integerPlane, tags []int8, n int, wantFront bool
 	if start < 0 {
 		return nil
 	}
-	q := &exactPolygon{p: p.p}
-	var startVertex homogeneousVertex
-	if tags[start] == 0 {
-		startVertex = p.v[start]
-	} else {
-		var ok bool
-		if startVertex, ok = vertexOf(&p.p, s, &p.e[start]); !ok {
-			return nil
-		}
+	startVertex, ok := p.vertexOnPlane(s, tags[start] == 0, start, &p.e[start], true)
+	if !ok {
+		return nil
 	}
-	q.e = append(q.e, p.e[start])
-	q.v = append(q.v, startVertex)
+	q := &exactPolygon{p: p.p, e: []integerPlane{p.e[start]}, v: []homogeneousVertex{startVertex}}
 	last := -1
-	if exit(start) {
+	if leavesSide(tags, n, start, wantFront) {
 		last = start
 	}
 	for k := 1; last < 0 && k < n; k++ {
 		idx := (start + k) % n
 		q.e = append(q.e, p.e[idx])
 		q.v = append(q.v, p.v[idx])
-		if exit(idx) {
+		if leavesSide(tags, n, idx, wantFront) {
 			last = idx
 		}
 	}
 	if last < 0 {
 		return nil
 	}
-	var endVertex homogeneousVertex
-	if end := (last + 1) % n; tags[end] == 0 {
-		endVertex = p.v[end]
-	} else {
-		var ok bool
-		if endVertex, ok = vertexOf(&p.p, &p.e[last], s); !ok {
-			return nil
-		}
+	end := (last + 1) % n
+	endVertex, ok := p.vertexOnPlane(s, tags[end] == 0, end, &p.e[last], false)
+	if !ok {
+		return nil
 	}
 	q.e = append(q.e, *s)
 	q.v = append(q.v, endVertex)
@@ -334,6 +318,39 @@ func (p *exactPolygon) piece(s *integerPlane, tags []int8, n int, wantFront bool
 		return nil
 	}
 	return q
+}
+
+// entersSide reports whether edge i of a polygon with side tags crosses (or leaves) the cutting
+// plane into the wanted side.
+func entersSide(tags []int8, n, i int, wantFront bool) bool {
+	a, b := tags[i], tags[(i+1)%n]
+	if wantFront {
+		return a <= 0 && b > 0
+	}
+	return a >= 0 && b < 0
+}
+
+// leavesSide reports whether edge i crosses (or reaches) the cutting plane out of the wanted side.
+func leavesSide(tags []int8, n, i int, wantFront bool) bool {
+	a, b := tags[i], tags[(i+1)%n]
+	if wantFront {
+		return a > 0 && b <= 0
+	}
+	return a < 0 && b >= 0
+}
+
+// vertexOnPlane returns the polygon corner when it already lies on the cutting plane, and
+// otherwise the point where the edge plane meets the cutting plane. At the start of a piece the
+// edge is crossed first (edge, s); at its end the order is reversed.
+func (p *exactPolygon) vertexOnPlane(s *integerPlane, onPlane bool, corner int, edge *integerPlane,
+	atStart bool) (homogeneousVertex, bool) {
+	if onPlane {
+		return p.v[corner], true
+	}
+	if atStart {
+		return vertexOf(&p.p, s, edge)
+	}
+	return vertexOf(&p.p, edge, s)
 }
 
 type node struct {
@@ -527,7 +544,10 @@ func (s Solid) translate(offset [3]int64) Solid {
 			newX := new(big.Int).Add(v.x, new(big.Int).Mul(bigInt(offset[0]), v.w))
 			newY := new(big.Int).Add(v.y, new(big.Int).Mul(bigInt(offset[1]), v.w))
 			newZ := new(big.Int).Add(v.z, new(big.Int).Mul(bigInt(offset[2]), v.w))
-			q.v[k] = homogeneousVertex{newX, newY, newZ, v.w, v.floatX + float64(offset[0]), v.floatY + float64(offset[1]), v.floatZ + float64(offset[2])}
+			q.v[k] = homogeneousVertex{
+				newX, newY, newZ, v.w,
+				v.floatX + float64(offset[0]), v.floatY + float64(offset[1]), v.floatZ + float64(offset[2]),
+			}
 		}
 		out[i] = q
 	}
@@ -544,122 +564,93 @@ func (s Solid) translate(offset [3]int64) Solid {
 //  3. Every exact polygon is strictly convex, so a fan is free of degenerate triangles; each fan
 //     triangle is then split at the extra vertices found on its boundary edges.
 func (s Solid) Mesh() *Mesh {
-	m := &Mesh{}
-	var homogeneousVertices []homogeneousVertex
-	vertexIndexByCoordinate := map[[3]float64]int{}
-	vertexIndexOf := func(h homogeneousVertex) int {
-		k := [3]float64{h.floatX / lattice, h.floatY / lattice, h.floatZ / lattice}
-		if id, ok := vertexIndexByCoordinate[k]; ok {
-			return id
-		}
-		id := len(m.Vertices)
-		vertexIndexByCoordinate[k] = id
-		m.Vertices = append(m.Vertices, Vector3{k[0], k[1], k[2]})
-		homogeneousVertices = append(homogeneousVertices, h)
-		return id
+	builder := &meshBuilder{mesh: &Mesh{}, indexByCoordinate: map[[3]float64]int{}}
+	cornerIndices := make([][]int, len(s))
+	for i, polygon := range s {
+		cornerIndices[i] = builder.cornerIndices(polygon)
 	}
-	polygonVertexIndices := make([][]int, len(s))
-	for polygonIndex, p := range s {
-		for _, h := range p.v {
-			id := vertexIndexOf(h)
-			if n := len(polygonVertexIndices[polygonIndex]); n == 0 || polygonVertexIndices[polygonIndex][n-1] != id {
-				polygonVertexIndices[polygonIndex] = append(polygonVertexIndices[polygonIndex], id)
-			}
-		}
-		for n := len(polygonVertexIndices[polygonIndex]); n > 1 && polygonVertexIndices[polygonIndex][0] == polygonVertexIndices[polygonIndex][n-1]; n = len(polygonVertexIndices[polygonIndex]) {
-			polygonVertexIndices[polygonIndex] = polygonVertexIndices[polygonIndex][:n-1]
-		}
+	builder.grid = vertexGrid(builder.mesh.Vertices, meshCell)
+	for i, polygon := range s {
+		builder.triangulate(polygon, cornerIndices[i])
 	}
-	const cell = 2.0
-	grid := map[cellKey][]int{}
-	for i, p := range m.Vertices {
-		k := cellKeyOf(p, cell)
-		grid[k] = append(grid[k], i)
+	return builder.mesh
+}
+
+const (
+	meshCell    = 2.0  // edge of the spatial grid cells used to find vertices near an edge (mm)
+	edgePadding = 1e-6 // margin of the float pre-filter that precedes the exact edge test (mm)
+)
+
+// meshBuilder accumulates the vertices and triangles of the mesh made from a Solid.
+type meshBuilder struct {
+	mesh              *Mesh
+	exactVertices     []homogeneousVertex // exactVertices[i] is the exact position of mesh.Vertices[i]
+	indexByCoordinate map[[3]float64]int
+	grid              map[cellKey][]int
+}
+
+// indexOf returns the mesh vertex for an exact vertex, creating it on first use.
+func (b *meshBuilder) indexOf(vertex homogeneousVertex) int {
+	key := [3]float64{vertex.floatX / lattice, vertex.floatY / lattice, vertex.floatZ / lattice}
+	if index, ok := b.indexByCoordinate[key]; ok {
+		return index
 	}
-	const padding = 1e-6
-	extraVerticesOf := func(p *exactPolygon, vertexIndices []int, i int) []int {
-		n := len(vertexIndices)
-		if len(p.v) != n { // consecutive duplicates were merged: edge planes no longer line up
-			return nil
-		}
-		a, b := vertexIndices[i], vertexIndices[(i+1)%n]
-		pointA, pointB := m.Vertices[a], m.Vertices[b]
-		lo := Vector3{math.Min(pointA.X, pointB.X) - padding, math.Min(pointA.Y, pointB.Y) - padding, math.Min(pointA.Z, pointB.Z) - padding}
-		hi := Vector3{math.Max(pointA.X, pointB.X) + padding, math.Max(pointA.Y, pointB.Y) + padding, math.Max(pointA.Z, pointB.Z) + padding}
-		lowKey, highKey := cellKeyOf(lo, cell), cellKeyOf(hi, cell)
-		edgeVector := pointB.Sub(pointA)
-		edgeLengthSquared := edgeVector.Dot(edgeVector)
-		type candidate struct {
-			v int
-			t float64
-		}
-		var candidates []candidate
-		for x := lowKey[0]; x <= highKey[0]; x++ {
-			for y := lowKey[1]; y <= highKey[1]; y++ {
-				for z := lowKey[2]; z <= highKey[2]; z++ {
-					for _, c := range grid[cellKey{x, y, z}] {
-						if c == a || c == b {
-							continue
-						}
-						q := m.Vertices[c]
-						t := q.Sub(pointA).Dot(edgeVector) / edgeLengthSquared
-						if t <= 0 || t >= 1 || q.Sub(pointA.Add(edgeVector.Scale(t))).Length() > padding {
-							continue // pre-filter only
-						}
-						if homogeneousVertices[c].side(&p.e[i]) != 0 || homogeneousVertices[c].side(&p.p) != 0 {
-							continue // exact test
-						}
-						candidates = append(candidates, candidate{c, t})
-					}
-				}
-			}
-		}
-		for i := 1; i < len(candidates); i++ {
-			for j := i; j > 0 && candidates[j].t < candidates[j-1].t; j-- {
-				candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
-			}
-		}
-		out := make([]int, len(candidates))
-		for i, c := range candidates {
-			out[i] = c.v
-		}
-		return out
-	}
-	var subdivide func(a, b, c int, extrasAB, extrasBC, extrasCA []int)
-	subdivide = func(a, b, c int, extrasAB, extrasBC, extrasCA []int) {
-		switch {
-		case len(extrasAB) > 0:
-			e := extrasAB[0]
-			subdivide(a, e, c, nil, nil, extrasCA)
-			subdivide(e, b, c, extrasAB[1:], extrasBC, nil)
-		case len(extrasBC) > 0:
-			subdivide(b, c, a, extrasBC, extrasCA, extrasAB)
-		case len(extrasCA) > 0:
-			subdivide(c, a, b, extrasCA, extrasAB, extrasBC)
-		default:
-			m.Triangles = append(m.Triangles, Triangle{a, b, c})
+	index := len(b.mesh.Vertices)
+	b.indexByCoordinate[key] = index
+	b.mesh.Vertices = append(b.mesh.Vertices, Vector3{key[0], key[1], key[2]})
+	b.exactVertices = append(b.exactVertices, vertex)
+	return index
+}
+
+// cornerIndices returns the mesh vertices of the polygon's corners with consecutive duplicates removed.
+func (b *meshBuilder) cornerIndices(polygon *exactPolygon) []int {
+	var indices []int
+	for _, vertex := range polygon.v {
+		index := b.indexOf(vertex)
+		if n := len(indices); n == 0 || indices[n-1] != index {
+			indices = append(indices, index)
 		}
 	}
-	for polygonIndex, p := range s {
-		vertexIndices := polygonVertexIndices[polygonIndex]
-		n := len(vertexIndices)
-		if n < 3 {
-			continue
-		}
-		extraVertices := make([][]int, n)
-		for i := range extraVertices {
-			extraVertices[i] = extraVerticesOf(p, vertexIndices, i)
-		}
-		for i := 1; i+1 < n; i++ {
-			var extrasAB, extrasCA []int
-			if i == 1 {
-				extrasAB = extraVertices[0]
-			}
-			if i+1 == n-1 {
-				extrasCA = extraVertices[n-1]
-			}
-			subdivide(vertexIndices[0], vertexIndices[i], vertexIndices[i+1], extrasAB, extraVertices[i], extrasCA)
-		}
+	for n := len(indices); n > 1 && indices[0] == indices[n-1]; n = len(indices) {
+		indices = indices[:n-1]
 	}
-	return m
+	return indices
+}
+
+// extraVertices lists the mesh vertices that lie exactly on the polygon's edge starting at corner
+// edge (T-junctions), ordered along the edge.
+func (b *meshBuilder) extraVertices(polygon *exactPolygon, indices []int, edge int) []int {
+	n := len(indices)
+	if len(polygon.v) != n { // consecutive duplicates were merged: edge planes no longer line up
+		return nil
+	}
+	onEdge := func(index int) bool { // exact test; the float filter in verticesAlongEdge only prunes
+		vertex := &b.exactVertices[index]
+		return vertex.side(&polygon.e[edge]) == 0 && vertex.side(&polygon.p) == 0
+	}
+	return verticesAlongEdge(b.mesh.Vertices, b.grid, meshCell, indices[edge], indices[(edge+1)%n], edgePadding, onEdge)
+}
+
+// triangulate fans the polygon from its first corner and splits every fan triangle at the extra
+// vertices on its boundary edges.
+func (b *meshBuilder) triangulate(polygon *exactPolygon, indices []int) {
+	n := len(indices)
+	if n < 3 {
+		return
+	}
+	extras := make([][]int, n)
+	for i := range extras {
+		extras[i] = b.extraVertices(polygon, indices, i)
+	}
+	emit := func(triangle Triangle) { b.mesh.Triangles = append(b.mesh.Triangles, triangle) }
+	for i := 1; i+1 < n; i++ {
+		var extrasAB, extrasCA []int
+		if i == 1 {
+			extrasAB = extras[0]
+		}
+		if i+1 == n-1 {
+			extrasCA = extras[n-1]
+		}
+		subdivideTriangle(indices[0], indices[i], indices[i+1], extrasAB, extras[i], extrasCA, emit)
+	}
 }

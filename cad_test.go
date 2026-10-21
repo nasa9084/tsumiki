@@ -85,7 +85,8 @@ func TestTaperedExtrude(t *testing.T) {
 	p := NewPart("frustum").Extrude(s, h, Taper(a))
 	r := mustWatertight(t, "frustum", p)
 	grownRadius := 10 + h*math.Tan(Radians(a))
-	near(t, "volume", r.Volume, math.Pi*h/3*(100+10*grownRadius+grownRadius*grownRadius), 4) // inscribed polygon, chord tolerance 0.01
+	// inscribed polygon, chord tolerance 0.01
+	near(t, "volume", r.Volume, math.Pi*h/3*(100+10*grownRadius+grownRadius*grownRadius), 4)
 	_, hi := p.Mesh().Bounds()
 	near(t, "xmax", hi.X, grownRadius, 0.02)
 }
@@ -96,7 +97,8 @@ func TestTaperedRingWithHole(t *testing.T) {
 	p := NewPart("tring").Extrude(s, 4, Taper(45))
 	r := mustWatertight(t, "tring", p)
 	outerRadius, innerRadius := 24.0, 6.0
-	want := math.Pi * 4 / 3 * ((400 + 20*outerRadius + outerRadius*outerRadius) - (100 + 10*innerRadius + innerRadius*innerRadius))
+	want := math.Pi * 4 / 3 *
+		((400 + 20*outerRadius + outerRadius*outerRadius) - (100 + 10*innerRadius + innerRadius*innerRadius))
 	near(t, "volume", r.Volume, want, 3)
 }
 
@@ -156,7 +158,8 @@ func TestExport(t *testing.T) {
 	if err := xml.Unmarshal(model, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Vertices) != len(p.Mesh().Vertices) || len(doc.Triangles) != len(p.Mesh().Triangles) || doc.Unit != "millimeter" {
+	if len(doc.Vertices) != len(p.Mesh().Vertices) || len(doc.Triangles) != len(p.Mesh().Triangles) ||
+		doc.Unit != "millimeter" {
 		t.Errorf("3mf mismatch: %d/%d %q", len(doc.Vertices), len(doc.Triangles), doc.Unit)
 	}
 	var stl bytes.Buffer

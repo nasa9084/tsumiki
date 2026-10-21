@@ -2,6 +2,7 @@ package tsumiki
 
 import (
 	"math"
+	"slices"
 )
 
 // Triangle indexes three vertices, counter-clockwise seen from outside.
@@ -69,7 +70,7 @@ func (m *Mesh) Validate() Report {
 			r.Degenerate++
 			continue
 		}
-		for k := 0; k < 3; k++ {
+		for k := range 3 {
 			edges[[2]int{t[k], t[(k+1)%3]}]++
 		}
 	}
@@ -200,22 +201,32 @@ func (m *Mesh) dropInternal() {
 	m.Triangles = out
 }
 
-var debugTJunctions func(m *Mesh, original Triangle, pieces []Triangle)
+// edgeKey identifies an undirected edge by its vertex indices in ascending order.
+type edgeKey [2]int
 
-// fixTJunctions splits triangle edges at vertices that lie on them (within epsilon).
-func (m *Mesh) fixTJunctions(epsilon float64) {
-	const cell = 2.0
-	grid := map[cellKey][]int{}
-	for i, p := range m.Vertices {
-		k := cellKeyOf(p, cell)
-		grid[k] = append(grid[k], i)
+// edgeExtras maps an edge to the vertices lying on it, ordered from the lower to the higher index.
+type edgeExtras map[edgeKey][]int
+
+// along returns the extra vertices on the directed edge a -> b, ordered from a to b.
+func (e edgeExtras) along(a, b int) []int {
+	if a < b {
+		return e[edgeKey{a, b}]
 	}
-	type edgeKey [2]int
-	extras := map[edgeKey][]int{} // keyed by (min,max); values ordered from min to max
+	forward := e[edgeKey{b, a}]
+	reversed := make([]int, len(forward))
+	for i := range forward {
+		reversed[len(forward)-1-i] = forward[i]
+	}
+	return reversed
+}
+
+// findEdgeExtras finds, for every triangle edge, the vertices that lie on it within epsilon.
+func (m *Mesh) findEdgeExtras(grid map[cellKey][]int, cell, epsilon float64) edgeExtras {
+	extras := edgeExtras{}
 	done := map[edgeKey]bool{}
-	for _, t := range m.Triangles {
-		for k := 0; k < 3; k++ {
-			a, b := t[k], t[(k+1)%3]
+	for _, triangle := range m.Triangles {
+		for k := range 3 {
+			a, b := triangle[k], triangle[(k+1)%3]
 			if a > b {
 				a, b = b, a
 			}
@@ -225,104 +236,47 @@ func (m *Mesh) fixTJunctions(epsilon float64) {
 			}
 			done[edge] = true
 			pointA, pointB := m.Vertices[a], m.Vertices[b]
-			lo := Vector3{math.Min(pointA.X, pointB.X) - epsilon, math.Min(pointA.Y, pointB.Y) - epsilon, math.Min(pointA.Z, pointB.Z) - epsilon}
-			hi := Vector3{math.Max(pointA.X, pointB.X) + epsilon, math.Max(pointA.Y, pointB.Y) + epsilon, math.Max(pointA.Z, pointB.Z) + epsilon}
-			lowKey, highKey := cellKeyOf(lo, cell), cellKeyOf(hi, cell)
-			edgeVector := pointB.Sub(pointA)
-			edgeLengthSquared := edgeVector.Dot(edgeVector)
-			type candidate struct {
-				v int
-				t float64
+			awayFromEnds := func(index int) bool {
+				point := m.Vertices[index]
+				return point.Sub(pointA).Length() > epsilon && point.Sub(pointB).Length() > epsilon
 			}
-			var candidates []candidate
-			for x := lowKey[0]; x <= highKey[0]; x++ {
-				for y := lowKey[1]; y <= highKey[1]; y++ {
-					for z := lowKey[2]; z <= highKey[2]; z++ {
-						for _, v := range grid[cellKey{x, y, z}] {
-							if v == a || v == b {
-								continue
-							}
-							p := m.Vertices[v]
-							fraction := p.Sub(pointA).Dot(edgeVector) / edgeLengthSquared
-							if fraction <= 0 || fraction >= 1 {
-								continue
-							}
-							if p.Sub(pointA.Add(edgeVector.Scale(fraction))).Length() > epsilon {
-								continue
-							}
-							if p.Sub(pointA).Length() <= epsilon || p.Sub(pointB).Length() <= epsilon {
-								continue
-							}
-							candidates = append(candidates, candidate{v, fraction})
-						}
-					}
-				}
+			if found := verticesAlongEdge(m.Vertices, grid, cell, a, b, epsilon, awayFromEnds); len(found) > 0 {
+				extras[edge] = found
 			}
-			if len(candidates) == 0 {
-				continue
-			}
-			for i := 1; i < len(candidates); i++ { // insertion sort by t
-				for j := i; j > 0 && candidates[j].t < candidates[j-1].t; j-- {
-					candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
-				}
-			}
-			vertexIndices := make([]int, len(candidates))
-			for i, c := range candidates {
-				vertexIndices[i] = c.v
-			}
-			extras[edge] = vertexIndices
 		}
 	}
+	return extras
+}
+
+// without removes corner from vertices: a triangle's own corner is never an extra on its edges.
+func without(vertices []int, corner int) []int {
+	if !slices.Contains(vertices, corner) {
+		return vertices
+	}
+	kept := make([]int, 0, len(vertices))
+	for _, vertex := range vertices {
+		if vertex != corner {
+			kept = append(kept, vertex)
+		}
+	}
+	return kept
+}
+
+// fixTJunctions splits triangle edges at vertices that lie on them (within epsilon).
+func (m *Mesh) fixTJunctions(epsilon float64) {
+	const cell = 2.0
+	extras := m.findEdgeExtras(vertexGrid(m.Vertices, cell), cell, epsilon)
 	if len(extras) == 0 {
 		return
 	}
-	edgeExtras := func(a, b int) []int {
-		if a < b {
-			return extras[edgeKey{a, b}]
-		}
-		e := extras[edgeKey{b, a}]
-		r := make([]int, len(e))
-		for i := range e {
-			r[len(e)-1-i] = e[i]
-		}
-		return r
-	}
 	var out []Triangle
-	var subdivide func(a, b, c int, extrasAB, extrasBC, extrasCA []int)
-	subdivide = func(a, b, c int, extrasAB, extrasBC, extrasCA []int) {
-		switch {
-		case len(extrasAB) > 0:
-			e := extrasAB[0]
-			subdivide(a, e, c, nil, nil, extrasCA)
-			subdivide(e, b, c, extrasAB[1:], extrasBC, nil)
-		case len(extrasBC) > 0:
-			subdivide(b, c, a, extrasBC, extrasCA, extrasAB)
-		case len(extrasCA) > 0:
-			subdivide(c, a, b, extrasCA, extrasAB, extrasBC)
-		default:
-			out = append(out, Triangle{a, b, c})
-		}
-	}
+	emit := func(piece Triangle) { out = append(out, piece) }
 	for _, t := range m.Triangles {
-		startLength := len(out)
-		without := func(vertexIndices []int, corner int) []int { // a triangle's own corner is never an "extra" on its edges
-			for _, v := range vertexIndices {
-				if v == corner {
-					r := make([]int, 0, len(vertexIndices))
-					for _, w := range vertexIndices {
-						if w != corner {
-							r = append(r, w)
-						}
-					}
-					return r
-				}
-			}
-			return vertexIndices
-		}
-		subdivide(t[0], t[1], t[2], without(edgeExtras(t[0], t[1]), t[2]), without(edgeExtras(t[1], t[2]), t[0]), without(edgeExtras(t[2], t[0]), t[1]))
-		if debugTJunctions != nil {
-			debugTJunctions(m, t, out[startLength:])
-		}
+		subdivideTriangle(t[0], t[1], t[2],
+			without(extras.along(t[0], t[1]), t[2]),
+			without(extras.along(t[1], t[2]), t[0]),
+			without(extras.along(t[2], t[0]), t[1]),
+			emit)
 	}
 	m.Triangles = out
 }
@@ -347,7 +301,7 @@ func (m *Mesh) dropFlat() {
 func (m *Mesh) Cleanup() {
 	m.Weld(weldEpsilon)
 	m.dropRepeated() // must precede T-junction repair: collapsed triangles would be "split" into garbage
-	for pass := 0; pass < 4; pass++ {
+	for range 4 {
 		n := len(m.Triangles)
 		m.fixTJunctions(tJunctionEpsilon)
 		m.dropRepeated()
@@ -364,7 +318,7 @@ func (m *Mesh) Cleanup() {
 	}
 	var newVertices []Vector3
 	for i, t := range m.Triangles {
-		for k := 0; k < 3; k++ {
+		for k := range 3 {
 			if used[t[k]] < 0 {
 				used[t[k]] = len(newVertices)
 				newVertices = append(newVertices, m.Vertices[t[k]])

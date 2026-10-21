@@ -96,7 +96,8 @@ func TestExtrudeRejectsCollapsingTaper(t *testing.T) {
 }
 
 func TestRevolveRejectsProfileAcrossTheAxis(t *testing.T) {
-	part := NewPart("axis").Revolve(NewSketch(XY(0)).Polygon(Vector2{-1, 0}, Vector2{1, 0}, Vector2{1, 2}, Vector2{-1, 2}), 360)
+	part := NewPart("axis").Revolve(
+		NewSketch(XY(0)).Polygon(Vector2{-1, 0}, Vector2{1, 0}, Vector2{1, 2}, Vector2{-1, 2}), 360)
 	if part.Err() == nil {
 		t.Error("a profile on both sides of the axis cannot be revolved")
 	}

@@ -100,8 +100,8 @@ func TestTriangulationAreaMatchesExtrudedVolume(t *testing.T) {
 func TestTriangulateAlignedGridOfHoles(t *testing.T) {
 	outer := Loop{{0, 0}, {40, 0}, {40, 40}, {0, 40}}
 	var holes []Loop
-	for column := 0; column < 4; column++ {
-		for row := 0; row < 4; row++ {
+	for column := range 4 {
+		for row := range 4 {
 			x, y := 4+float64(column)*9, 4+float64(row)*9
 			holes = append(holes, Loop{{x, y}, {x, y + 5}, {x + 5, y + 5}, {x + 5, y}}) // clockwise
 		}

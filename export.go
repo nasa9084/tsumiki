@@ -47,11 +47,17 @@ func (m *Mesh) Write3MF(w io.Writer, name string) error {
 		return err
 	}
 	if err := addFile("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`); err != nil {
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">`+
+		`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`+
+		`<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>`+
+		`</Types>`); err != nil {
 		return err
 	}
 	if err := addFile("_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`); err != nil {
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
+		`<Relationship Target="/3D/3dmodel.model" Id="rel0" `+
+		`Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>`+
+		`</Relationships>`); err != nil {
 		return err
 	}
 	f, err := zipWriter.Create("3D/3dmodel.model")
@@ -70,7 +76,8 @@ func (m *Mesh) Write3MF(w io.Writer, name string) error {
 	for _, t := range m.Triangles {
 		_, _ = fmt.Fprintf(bufferedWriter, "<triangle v1=\"%d\" v2=\"%d\" v3=\"%d\"/>\n", t[0], t[1], t[2])
 	}
-	_, _ = fmt.Fprint(bufferedWriter, "</triangles></mesh></object></resources>\n<build><item objectid=\"1\"/></build>\n</model>\n")
+	_, _ = fmt.Fprint(bufferedWriter,
+		"</triangles></mesh></object></resources>\n<build><item objectid=\"1\"/></build>\n</model>\n")
 	if err := bufferedWriter.Flush(); err != nil {
 		return err
 	}
