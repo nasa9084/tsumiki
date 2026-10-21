@@ -22,9 +22,9 @@ func YZ(x0 float64) Plane {
 	return Plane{Vector3{x0, 0, 0}, Vector3{0, 1, 0}, Vector3{0, 0, 1}, Vector3{1, 0, 0}}
 }
 
-// Point maps plane coordinates (u,v) and a height w along N to world space.
-func (p Plane) Point(u, v, width float64) Vector3 {
-	return p.Origin.Add(p.U.Scale(u)).Add(p.V.Scale(v)).Add(p.Normal.Scale(width))
+// Point maps plane coordinates (u,v) and an offset along the plane normal to world space.
+func (p Plane) Point(u, v, normalOffset float64) Vector3 {
+	return p.Origin.Add(p.U.Scale(u)).Add(p.V.Scale(v)).Add(p.Normal.Scale(normalOffset))
 }
 
 // Loop is a closed polygon (the closing edge is implicit).
@@ -82,12 +82,12 @@ func (s *Sketch) Circle(centerX, centerY, radius float64) *Sketch {
 	return s
 }
 
-// Rect adds an axis-aligned rectangle centred at (centerX,centerY).
+// Rect adds an axis-aligned rectangle centered at (centerX,centerY).
 func (s *Sketch) Rect(centerX, centerY, width, height float64) *Sketch {
 	return s.RoundedRect(centerX, centerY, width, height, 0, 0)
 }
 
-// RoundedRect adds a width x height rectangle with corner radius, rotated by rotationDegrees around its centre.
+// RoundedRect adds a width x height rectangle with corner radius, rotated by rotationDegrees around its center.
 func (s *Sketch) RoundedRect(centerX, centerY, width, height, radius, rotationDegrees float64) *Sketch {
 	halfWidth, halfHeight := width/2, height/2
 	radius = math.Min(radius, math.Min(halfWidth, halfHeight)) // a radius beyond half the short side would self-intersect

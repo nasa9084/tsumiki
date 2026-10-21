@@ -137,9 +137,15 @@ func TestExport(t *testing.T) {
 	var model []byte
 	for _, f := range zipReader.File {
 		if f.Name == "3D/3dmodel.model" {
-			entryReader, _ := f.Open()
-			model, _ = io.ReadAll(entryReader)
-			entryReader.Close()
+			entryReader, err := f.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			model, err = io.ReadAll(entryReader)
+			_ = entryReader.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	var doc struct {

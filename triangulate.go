@@ -42,11 +42,17 @@ func triangulateRegion(outer Loop, holes []Loop) ([]Vector2, [][3]int) {
 
 func twiceSignedArea(a, b, c Vector2) float64 { return b.Sub(a).Cross(c.Sub(a)) }
 
+// inTriangleInclusive reports whether p lies in triangle abc, boundary included.
+// A zero-area triangle contains nothing: without this, every point on its supporting line
+// would count as inside.
 func inTriangleInclusive(a, b, c, p Vector2) bool {
+	if twiceSignedArea(a, b, c) == 0 {
+		return false
+	}
 	sideAB, sideBC, sideCA := twiceSignedArea(a, b, p), twiceSignedArea(b, c, p), twiceSignedArea(c, a, p)
 	neg := sideAB < 0 || sideBC < 0 || sideCA < 0
 	pos := sideAB > 0 || sideBC > 0 || sideCA > 0
-	return !(neg && pos)
+	return !neg || !pos
 }
 
 // locallyInside reports whether direction d from ring[j] points into the polygon interior (CCW ring).

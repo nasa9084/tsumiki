@@ -35,12 +35,16 @@ Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One bool
 go run ./cmd/guard ./out   # writes a 3MF and an STL to ./out
 ```
 
-## Tests
+## Development
 
 ```sh
-go test ./...
+go test ./...                 # unit tests, including the full guard build (about 30 s)
+go test -short ./...          # skips the slow guard build
 STRESS_N=400 go test -run TestBooleanRandom -v
+golangci-lint run ./...       # lint (golangci-lint v2, see .golangci.yml)
 ```
+
+Pull requests run the unit tests and golangci-lint through GitHub Actions (`.github/workflows/ci.yml`).
 
 ## License
 

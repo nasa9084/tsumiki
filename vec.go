@@ -1,9 +1,9 @@
 // Package tsumiki is a small history-style (timeline) 3D CAD kernel for 3D printing.
 //
 // Conventions (fixed on purpose, see DESIGN.md):
-//   - units are millimetres, right-handed, Z up
+//   - units are millimeters, right-handed, Z up
 //   - sketch planes have U x V = Normal; extrusion distance is measured along Normal
-//   - taper angle: positive = the cross-section GROWS with distance travelled
+//   - taper angle: positive = the cross-section GROWS with distance traveled
 //   - triangle winding is counter-clockwise seen from outside (outward normals)
 package tsumiki
 

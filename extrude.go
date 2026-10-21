@@ -29,7 +29,7 @@ func offsetLoop(l Loop, distance float64) Loop {
 }
 
 // extrudeMesh builds the closed solid for regions extruded by distance along the plane normal.
-// taperDegrees > 0 makes the section grow with distance travelled. start shifts the base along N.
+// taperDegrees > 0 makes the section grow with distance traveled. start shifts the base along N.
 func extrudeMesh(plane Plane, regions []Region, distance, taperDegrees, start float64) (*Mesh, error) {
 	height := math.Abs(distance)
 	offsetDistance := height * math.Tan(Radians(taperDegrees))

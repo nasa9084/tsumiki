@@ -47,7 +47,7 @@ func (m *Mesh) flip() {
 	}
 }
 
-// Report summarises mesh health.
+// Report summarizes mesh health.
 type Report struct {
 	Triangles   int
 	Vertices    int
@@ -328,7 +328,7 @@ func (m *Mesh) fixTJunctions(epsilon float64) {
 }
 
 // dropFlat removes slivers: triangles whose height over their longest edge is below flatEps.
-// Together with T-junction repair this is exactly right: a flat triangle's neighbours have just
+// Together with T-junction repair this is exactly right: a flat triangle's neighbors have just
 // been split at its apex, so dropping it closes the surface again.
 func (m *Mesh) dropFlat() {
 	out := m.Triangles[:0]

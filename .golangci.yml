@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck and unused are on by default; add a few more.
+  enable:
+    - misspell
+    - unconvert
+    - unparam
+    - bodyclose
+  settings:
+    misspell:
+      locale: US
+    govet:
+      enable-all: false
+
+formatters:
+  enable:
+    - gofmt
+
+run:
+  timeout: 5m
