@@ -467,19 +467,19 @@ func pickSplitter(polygons []*exactPolygon) int {
 	return best
 }
 
-// BooleanOperation selects a boolean operation.
-type BooleanOperation int
+// BoolOperation selects a boolean operation.
+type BoolOperation int
 
 const (
-	OperationJoin BooleanOperation = iota
+	OperationJoin BoolOperation = iota
 	OperationCut
 	OperationIntersect
 )
 
-func (o BooleanOperation) String() string { return [...]string{"join", "cut", "intersect"}[o] }
+func (o BoolOperation) String() string { return [...]string{"join", "cut", "intersect"}[o] }
 
-// BooleanSolid combines a and b exactly (neither is modified).
-func BooleanSolid(operation BooleanOperation, a, b Solid) Solid {
+// BoolSolid combines a and b exactly (neither is modified).
+func BoolSolid(operation BoolOperation, a, b Solid) Solid {
 	A, B := &node{}, &node{}
 	A.build(append([]*exactPolygon(nil), a...))
 	B.build(append([]*exactPolygon(nil), b...))

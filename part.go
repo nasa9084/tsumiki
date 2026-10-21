@@ -26,7 +26,7 @@ type Part struct {
 // Feature is one timeline entry with the state of the body after it.
 type Feature struct {
 	Name      string
-	Operation BooleanOperation
+	Operation BoolOperation
 	Report    Report
 }
 
@@ -66,7 +66,7 @@ func (p *Part) Timeline() string {
 }
 
 type featureOptions struct {
-	operation BooleanOperation
+	operation BoolOperation
 	taper     float64
 	start     float64
 }
@@ -142,7 +142,7 @@ func (p *Part) Revolve(s *Sketch, angleDegrees float64, options ...FeatureOption
 }
 
 // Combine joins/cuts/intersects another part into this one.
-func (p *Part) Combine(operation BooleanOperation, other *Part) *Part {
+func (p *Part) Combine(operation BoolOperation, other *Part) *Part {
 	if p.err != nil {
 		return p
 	}
@@ -153,7 +153,7 @@ func (p *Part) Combine(operation BooleanOperation, other *Part) *Part {
 	return p.applySolid("combine "+other.Name, operation, other.solid)
 }
 
-func (p *Part) apply(name string, operation BooleanOperation, tool *Mesh) *Part {
+func (p *Part) apply(name string, operation BoolOperation, tool *Mesh) *Part {
 	toolSolid, err := meshToSolid(tool)
 	if err != nil {
 		p.err = fmt.Errorf("%s: %w", name, err)
@@ -162,7 +162,7 @@ func (p *Part) apply(name string, operation BooleanOperation, tool *Mesh) *Part 
 	return p.applySolid(name, operation, toolSolid)
 }
 
-func (p *Part) applySolid(name string, operation BooleanOperation, tool Solid) *Part {
+func (p *Part) applySolid(name string, operation BoolOperation, tool Solid) *Part {
 	switch {
 	case len(p.solid) == 0 && operation == OperationJoin:
 		p.solid = tool
@@ -170,7 +170,7 @@ func (p *Part) applySolid(name string, operation BooleanOperation, tool Solid) *
 		p.err = fmt.Errorf("%s: %s on an empty body", name, operation)
 		return p
 	default:
-		p.solid = BooleanSolid(operation, p.solid, tool)
+		p.solid = BoolSolid(operation, p.solid, tool)
 	}
 	p.mesh = nil
 	p.Log = append(p.Log, Feature{Name: name, Operation: operation, Report: p.Report()})
