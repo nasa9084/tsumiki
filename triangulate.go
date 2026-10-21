@@ -6,145 +6,145 @@ import (
 )
 
 // triangulateRegion triangulates a region (outer CCW, holes CW).
-// pts is outer followed by each hole in the given order; triangles index into pts
+// points is outer followed by each hole in the given order; triangles index into points
 // and are counter-clockwise. Holes are bridged into the outer ring (Eberly), then ear clipped.
-func triangulateRegion(outer Loop, holes []Loop) ([]V2, [][3]int) {
-	pts := append([]V2(nil), outer...)
+func triangulateRegion(outer Loop, holes []Loop) ([]Vector2, [][3]int) {
+	points := append([]Vector2(nil), outer...)
 	ring := make([]int, len(outer))
 	for i := range ring {
 		ring[i] = i
 	}
 	type hole struct {
-		idx  []int
-		maxX float64
-		mi   int
+		indices  []int
+		maxX     float64
+		maxIndex int
 	}
-	var hs []hole
+	var sortedHoles []hole
 	for _, h := range holes {
-		base := len(pts)
-		pts = append(pts, h...)
-		idx := make([]int, len(h))
-		mi := 0
+		base := len(points)
+		points = append(points, h...)
+		indices := make([]int, len(h))
+		maxIndex := 0
 		for i := range h {
-			idx[i] = base + i
-			if h[i].X > h[mi].X {
-				mi = i
+			indices[i] = base + i
+			if h[i].X > h[maxIndex].X {
+				maxIndex = i
 			}
 		}
-		hs = append(hs, hole{idx, h[mi].X, mi})
+		sortedHoles = append(sortedHoles, hole{indices, h[maxIndex].X, maxIndex})
 	}
-	sort.SliceStable(hs, func(i, j int) bool { return hs[i].maxX > hs[j].maxX })
-	for _, h := range hs {
-		ring = bridgeHole(pts, ring, h.idx, h.mi)
+	sort.SliceStable(sortedHoles, func(i, j int) bool { return sortedHoles[i].maxX > sortedHoles[j].maxX })
+	for _, h := range sortedHoles {
+		ring = bridgeHole(points, ring, h.indices, h.maxIndex)
 	}
-	return pts, earClip(pts, ring)
+	return points, earClip(points, ring)
 }
 
-func tri2(a, b, c V2) float64 { return b.Sub(a).Cross(c.Sub(a)) }
+func twiceSignedArea(a, b, c Vector2) float64 { return b.Sub(a).Cross(c.Sub(a)) }
 
-func inTriInclusive(a, b, c, p V2) bool {
-	d1, d2, d3 := tri2(a, b, p), tri2(b, c, p), tri2(c, a, p)
-	neg := d1 < 0 || d2 < 0 || d3 < 0
-	pos := d1 > 0 || d2 > 0 || d3 > 0
+func inTriangleInclusive(a, b, c, p Vector2) bool {
+	sideAB, sideBC, sideCA := twiceSignedArea(a, b, p), twiceSignedArea(b, c, p), twiceSignedArea(c, a, p)
+	neg := sideAB < 0 || sideBC < 0 || sideCA < 0
+	pos := sideAB > 0 || sideBC > 0 || sideCA > 0
 	return !(neg && pos)
 }
 
 // locallyInside reports whether direction d from ring[j] points into the polygon interior (CCW ring).
-func locallyInside(pts []V2, ring []int, j int, target V2) bool {
+func locallyInside(points []Vector2, ring []int, j int, target Vector2) bool {
 	n := len(ring)
-	v := pts[ring[j]]
-	p := pts[ring[(j-1+n)%n]]
-	nx := pts[ring[(j+1)%n]]
+	v := points[ring[j]]
+	p := points[ring[(j-1+n)%n]]
+	nextPoint := points[ring[(j+1)%n]]
 	d := target.Sub(v)
-	a, b := nx.Sub(v), p.Sub(v)
+	a, b := nextPoint.Sub(v), p.Sub(v)
 	if a.Cross(b) >= 0 { // convex (or straight) vertex
 		return a.Cross(d) >= 0 && d.Cross(b) >= 0
 	}
 	return !(b.Cross(d) >= 0 && d.Cross(a) >= 0)
 }
 
-func bridgeHole(pts []V2, ring, hole []int, mi int) []int {
-	M := pts[hole[mi]]
+func bridgeHole(points []Vector2, ring, hole []int, maxIndex int) []int {
+	holePoint := points[hole[maxIndex]]
 	n := len(ring)
 	bestX, bestEdge := math.Inf(1), -1
 	for i := 0; i < n; i++ {
-		a, b := pts[ring[i]], pts[ring[(i+1)%n]]
+		a, b := points[ring[i]], points[ring[(i+1)%n]]
 		if a.Y == b.Y {
 			continue
 		}
-		if (a.Y <= M.Y && b.Y >= M.Y) || (a.Y >= M.Y && b.Y <= M.Y) {
-			x := a.X + (M.Y-a.Y)*(b.X-a.X)/(b.Y-a.Y)
-			if x >= M.X && x < bestX {
+		if (a.Y <= holePoint.Y && b.Y >= holePoint.Y) || (a.Y >= holePoint.Y && b.Y <= holePoint.Y) {
+			x := a.X + (holePoint.Y-a.Y)*(b.X-a.X)/(b.Y-a.Y)
+			if x >= holePoint.X && x < bestX {
 				bestX, bestEdge = x, i
 			}
 		}
 	}
-	pi := 0
+	partnerIndex := 0
 	if bestEdge < 0 {
 		// fall back to the nearest ring vertex
-		bd := math.Inf(1)
+		bestDistance := math.Inf(1)
 		for j := 0; j < n; j++ {
-			if d := pts[ring[j]].Sub(M).Len(); d < bd {
-				bd, pi = d, j
+			if d := points[ring[j]].Sub(holePoint).Length(); d < bestDistance {
+				bestDistance, partnerIndex = d, j
 			}
 		}
 	} else {
-		I := V2{bestX, M.Y}
-		i0, i1 := bestEdge, (bestEdge+1)%n
-		a, b := pts[ring[i0]], pts[ring[i1]]
+		intersection := Vector2{bestX, holePoint.Y}
+		startIndex, endIndex := bestEdge, (bestEdge+1)%n
+		a, b := points[ring[startIndex]], points[ring[endIndex]]
 		switch {
-		case I.Sub(a).Len() < 1e-12:
-			pi = i0
-		case I.Sub(b).Len() < 1e-12:
-			pi = i1
+		case intersection.Sub(a).Length() < 1e-12:
+			partnerIndex = startIndex
+		case intersection.Sub(b).Length() < 1e-12:
+			partnerIndex = endIndex
 		case b.X > a.X:
-			pi = i1
+			partnerIndex = endIndex
 		default:
-			pi = i0
+			partnerIndex = startIndex
 		}
-		P := pts[ring[pi]]
+		partnerPoint := points[ring[partnerIndex]]
 		// a reflex vertex inside triangle (M, I, P) blocks the view: pick the one with the smallest angle
-		bestTan := math.Inf(1)
+		bestTangent := math.Inf(1)
 		for j := 0; j < n; j++ {
-			if ring[j] == ring[pi] {
+			if ring[j] == ring[partnerIndex] {
 				continue
 			}
-			q := pts[ring[j]]
-			prev, next := pts[ring[(j-1+n)%n]], pts[ring[(j+1)%n]]
-			if tri2(prev, q, next) >= 0 { // not reflex
+			q := points[ring[j]]
+			prev, next := points[ring[(j-1+n)%n]], points[ring[(j+1)%n]]
+			if twiceSignedArea(prev, q, next) >= 0 { // not reflex
 				continue
 			}
-			t1, t2, t3 := M, I, P
-			if tri2(t1, t2, t3) < 0 {
-				t2, t3 = t3, t2
+			corner1, corner2, corner3 := holePoint, intersection, partnerPoint
+			if twiceSignedArea(corner1, corner2, corner3) < 0 {
+				corner2, corner3 = corner3, corner2
 			}
-			if !inTriInclusive(t1, t2, t3, q) || q.X <= M.X {
+			if !inTriangleInclusive(corner1, corner2, corner3, q) || q.X <= holePoint.X {
 				continue
 			}
-			tan := math.Abs(q.Y-M.Y) / (q.X - M.X)
-			if tan < bestTan {
-				bestTan, pi = tan, j
+			tangent := math.Abs(q.Y-holePoint.Y) / (q.X - holePoint.X)
+			if tangent < bestTangent {
+				bestTangent, partnerIndex = tangent, j
 			}
 		}
 	}
 	// the chosen vertex may occur several times in the ring: use the occurrence that sees M
 	for j := 0; j < n; j++ {
-		if ring[j] == ring[pi] && locallyInside(pts, ring, j, M) {
-			pi = j
+		if ring[j] == ring[partnerIndex] && locallyInside(points, ring, j, holePoint) {
+			partnerIndex = j
 			break
 		}
 	}
 	out := make([]int, 0, n+len(hole)+2)
-	out = append(out, ring[:pi+1]...)
+	out = append(out, ring[:partnerIndex+1]...)
 	for k := 0; k < len(hole); k++ {
-		out = append(out, hole[(mi+k)%len(hole)])
+		out = append(out, hole[(maxIndex+k)%len(hole)])
 	}
-	out = append(out, hole[mi], ring[pi])
-	out = append(out, ring[pi+1:]...)
+	out = append(out, hole[maxIndex], ring[partnerIndex])
+	out = append(out, ring[partnerIndex+1:]...)
 	return out
 }
 
-func earClip(pts []V2, ring []int) [][3]int {
+func earClip(points []Vector2, ring []int) [][3]int {
 	n := len(ring)
 	prev := make([]int, n)
 	next := make([]int, n)
@@ -152,29 +152,29 @@ func earClip(pts []V2, ring []int) [][3]int {
 		prev[i], next[i] = (i-1+n)%n, (i+1)%n
 	}
 	alive := n
-	var tris [][3]int
+	var triangles [][3]int
 	isEar := func(c int, strict bool) bool {
 		a, b, d := ring[prev[c]], ring[c], ring[next[c]]
-		A, B, C := pts[a], pts[b], pts[d]
-		if tri2(A, B, C) <= 1e-12 {
+		pointA, pointB, pointC := points[a], points[b], points[d]
+		if twiceSignedArea(pointA, pointB, pointC) <= 1e-12 {
 			return false
 		}
 		if !strict {
 			return true
 		}
 		for q := next[next[c]]; q != prev[c]; q = next[q] {
-			qi := ring[q]
-			if qi == a || qi == b || qi == d {
+			otherIndex := ring[q]
+			if otherIndex == a || otherIndex == b || otherIndex == d {
 				continue
 			}
-			Q := pts[qi]
-			if Q == A || Q == B || Q == C {
+			otherPoint := points[otherIndex]
+			if otherPoint == pointA || otherPoint == pointB || otherPoint == pointC {
 				continue
 			}
-			if tri2(pts[ring[prev[q]]], Q, pts[ring[next[q]]]) > 0 {
+			if twiceSignedArea(points[ring[prev[q]]], otherPoint, points[ring[next[q]]]) > 0 {
 				continue // convex vertices cannot be the only intruder
 			}
-			if inTriInclusive(A, B, C, Q) {
+			if inTriangleInclusive(pointA, pointB, pointC, otherPoint) {
 				return false
 			}
 		}
@@ -184,13 +184,13 @@ func earClip(pts []V2, ring []int) [][3]int {
 		next[prev[c]], prev[next[c]] = next[c], prev[c]
 		alive--
 	}
-	cur := 0
+	current := 0
 	for alive > 3 {
 		clipped := false
-		for k, c := 0, cur; k < alive; k, c = k+1, next[c] {
+		for k, c := 0, current; k < alive; k, c = k+1, next[c] {
 			if isEar(c, true) {
-				tris = append(tris, [3]int{ring[prev[c]], ring[c], ring[next[c]]})
-				cur = next[c]
+				triangles = append(triangles, [3]int{ring[prev[c]], ring[c], ring[next[c]]})
+				current = next[c]
 				remove(c)
 				clipped = true
 				break
@@ -200,23 +200,23 @@ func earClip(pts []V2, ring []int) [][3]int {
 			continue
 		}
 		// no strict ear: accept any convex corner, otherwise drop a flat one
-		for k, c := 0, cur; k < alive; k, c = k+1, next[c] {
+		for k, c := 0, current; k < alive; k, c = k+1, next[c] {
 			if isEar(c, false) {
-				tris = append(tris, [3]int{ring[prev[c]], ring[c], ring[next[c]]})
-				cur = next[c]
+				triangles = append(triangles, [3]int{ring[prev[c]], ring[c], ring[next[c]]})
+				current = next[c]
 				remove(c)
 				clipped = true
 				break
 			}
 		}
 		if !clipped {
-			remove(cur)
-			cur = next[cur]
+			remove(current)
+			current = next[current]
 		}
 	}
-	c := cur
-	if tri2(pts[ring[prev[c]]], pts[ring[c]], pts[ring[next[c]]]) > 1e-12 {
-		tris = append(tris, [3]int{ring[prev[c]], ring[c], ring[next[c]]})
+	c := current
+	if twiceSignedArea(points[ring[prev[c]]], points[ring[c]], points[ring[next[c]]]) > 1e-12 {
+		triangles = append(triangles, [3]int{ring[prev[c]], ring[c], ring[next[c]]})
 	}
-	return tris
+	return triangles
 }

@@ -12,35 +12,35 @@ import (
 // randSolid builds a random body from boxes and cylinders placed on a coarse grid so that
 // faces are frequently coplanar or touching (the cases that break epsilon-based kernels).
 func randSolid(r *rand.Rand, parts int) *Part {
-	g := func(lo, hi int) float64 { return float64(lo+r.Intn(hi-lo+1)) * 0.5 }
+	gridValue := func(lo, hi int) float64 { return float64(lo+r.Intn(hi-lo+1)) * 0.5 }
 	p := NewPart("rand")
 	for i := 0; i < parts; i++ {
-		z0 := g(0, 6)
-		h := g(1, 6)
+		z0 := gridValue(0, 6)
+		height := gridValue(1, 6)
 		var s *Sketch
 		switch r.Intn(3) {
 		case 0:
-			x0, y0 := g(-8, 4), g(-8, 4)
-			cx, cy, w, hh := x0+g(1, 6)/2, y0+g(1, 6)/2, g(1, 12), g(1, 12)
-			s = NewSketch(XY(z0)).Rect(cx, cy, w, hh)
-			p.Name += fmt.Sprintf(" rect(%g,%g,%g,%g)@z%g", cx, cy, w, hh, z0)
+			x0, y0 := gridValue(-8, 4), gridValue(-8, 4)
+			centerX, centerY, width, height := x0+gridValue(1, 6)/2, y0+gridValue(1, 6)/2, gridValue(1, 12), gridValue(1, 12)
+			s = NewSketch(XY(z0)).Rect(centerX, centerY, width, height)
+			p.Name += fmt.Sprintf(" rect(%g,%g,%g,%g)@z%g", centerX, centerY, width, height, z0)
 		case 1:
-			cx, cy, rr := g(-4, 4), g(-4, 4), g(1, 5)
-			s = NewSketch(XY(z0)).Circle(cx, cy, rr)
-			p.Name += fmt.Sprintf(" circle(%g,%g,%g)@z%g", cx, cy, rr, z0)
+			centerX, centerY, cornerRadius := gridValue(-4, 4), gridValue(-4, 4), gridValue(1, 5)
+			s = NewSketch(XY(z0)).Circle(centerX, centerY, cornerRadius)
+			p.Name += fmt.Sprintf(" circle(%g,%g,%g)@z%g", centerX, centerY, cornerRadius, z0)
 		default:
-			cx, cy, w, hh, rr, rot := g(-4, 4), g(-4, 4), g(4, 12), g(4, 12), g(1, 3), float64(r.Intn(4))*15
-			s = NewSketch(XY(z0)).RoundedRect(cx, cy, w, hh, rr, rot)
-			p.Name += fmt.Sprintf(" rrect(%g,%g,%g,%g,r%g,rot%g)@z%g", cx, cy, w, hh, rr, rot, z0)
+			centerX, centerY, width, height, cornerRadius, rotationDegrees := gridValue(-4, 4), gridValue(-4, 4), gridValue(4, 12), gridValue(4, 12), gridValue(1, 3), float64(r.Intn(4))*15
+			s = NewSketch(XY(z0)).RoundedRect(centerX, centerY, width, height, cornerRadius, rotationDegrees)
+			p.Name += fmt.Sprintf(" rrect(%g,%g,%g,%g,r%g,rot%g)@z%g", centerX, centerY, width, height, cornerRadius, rotationDegrees, z0)
 		}
-		var opts []FeatureOpt
+		var opts []FeatureOption
 		if r.Intn(3) == 0 {
 			opts = append(opts, Taper(float64(r.Intn(41)-10)))
 		}
 		if i > 0 && r.Intn(3) == 0 {
 			opts = append(opts, Cut())
 		}
-		p.Extrude(s, h, opts...)
+		p.Extrude(s, height, opts...)
 		if p.Err() != nil {
 			return nil
 		}
@@ -70,36 +70,36 @@ func TestBooleanRandomIdentities(t *testing.T) {
 			continue
 		}
 		checked++
-		va, vb := a.Report().Volume, b.Report().Volume
-		u := a.Clone("u").Combine(OpJoin, b)
-		i := a.Clone("i").Combine(OpIntersect, b)
-		c := a.Clone("c").Combine(OpCut, b)
+		volumeA, volumeB := a.Report().Volume, b.Report().Volume
+		u := a.Clone("u").Combine(OperationJoin, b)
+		i := a.Clone("i").Combine(OperationIntersect, b)
+		c := a.Clone("c").Combine(OperationCut, b)
 		tag := fmt.Sprintf("seed %d (%s | %s)", seed, a.Name, b.Name)
 		for name, p := range map[string]*Part{"union": u, "intersect": i, "cut": c} {
 			if p.Err() != nil || p.Mesh() == nil {
 				continue // empty result (disjoint intersection, or B swallowing A) is a legal outcome
 			}
-			rep := p.Report()
-			if rep.OpenEdges > 0 {
-				t.Errorf("%s %s: cracks %+v", tag, name, rep)
+			report := p.Report()
+			if report.OpenEdges > 0 {
+				t.Errorf("%s %s: cracks %+v", tag, name, report)
 			}
-			if rep.NonManifold > 0 {
+			if report.NonManifold > 0 {
 				edgeContact++
 			}
 		}
-		vi := 0.0
+		volumeIntersection := 0.0
 		if i.Err() == nil && i.Mesh() != nil {
-			vi = i.Report().Volume
+			volumeIntersection = i.Report().Volume
 		}
-		vc := 0.0
+		volumeCut := 0.0
 		if c.Err() == nil && c.Mesh() != nil {
-			vc = c.Report().Volume
+			volumeCut = c.Report().Volume
 		}
-		if math.Abs(u.Report().Volume+vi-va-vb) > 1e-3 {
-			t.Errorf("%s: |A∪B|+|A∩B| = %.6f, |A|+|B| = %.6f", tag, u.Report().Volume+vi, va+vb)
+		if math.Abs(u.Report().Volume+volumeIntersection-volumeA-volumeB) > 1e-3 {
+			t.Errorf("%s: |A∪B|+|A∩B| = %.6f, |A|+|B| = %.6f", tag, u.Report().Volume+volumeIntersection, volumeA+volumeB)
 		}
-		if math.Abs(vc-(va-vi)) > 1e-3 {
-			t.Errorf("%s: |A−B| = %.6f, |A|−|A∩B| = %.6f", tag, vc, va-vi)
+		if math.Abs(volumeCut-(volumeA-volumeIntersection)) > 1e-3 {
+			t.Errorf("%s: |A−B| = %.6f, |A|−|A∩B| = %.6f", tag, volumeCut, volumeA-volumeIntersection)
 		}
 	}
 	t.Logf("checked %d pairs, skipped %d invalid inputs, %d results with edge-contact non-manifold edges", checked, skipped, edgeContact)
@@ -113,9 +113,9 @@ func TestBooleanManyHoles(t *testing.T) {
 	plate := NewPart("plate").Extrude(NewSketch(XY(0)).Rect(0, 0, 40, 40), 3)
 	want := plate.Report().Volume
 	hole := NewPart("hole").Extrude(NewSketch(XY(0)).Circle(0, 0, 1.2), 3).Report().Volume
-	for ix := 0; ix < 4; ix++ {
-		for iy := 0; iy < 4; iy++ {
-			plate.Extrude(NewSketch(XY(0)).Circle(float64(ix)*5-7.5, float64(iy)*5-7.5, 1.2), 3, Cut())
+	for column := 0; column < 4; column++ {
+		for row := 0; row < 4; row++ {
+			plate.Extrude(NewSketch(XY(0)).Circle(float64(column)*5-7.5, float64(row)*5-7.5, 1.2), 3, Cut())
 		}
 	}
 	r := mustWatertight(t, "grid of holes", plate)

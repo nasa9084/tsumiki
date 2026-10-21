@@ -1,5 +1,5 @@
 // guard rebuilds the Prestera90 guard (see the project doc prestera90-guard-spec.md) with the
-// gocad kernel, one feature at a time, and checks it against the Fusion reference values.
+// tsumiki kernel, one feature at a time, and checks it against the Fusion reference values.
 package main
 
 import (
@@ -12,50 +12,50 @@ import (
 )
 
 const (
-	hexFlats  = 3.2
-	hexPitch  = 4.0
-	frame     = 2.5
-	splitX    = 0.7
-	plateR    = 65.0
-	holeR     = 22.5
-	plateT    = 1.5
-	touchEps  = 0.05 // how far a hex may be from the reinforcement band and still count as touching
-	skirtH    = 12.0
-	rot45     = 45.0
-	cornerOff = 33.94 // (41.3-17.3)*sqrt2 : distance of the skirt corner arc centre
+	hexAcrossFlats          = 3.2
+	hexPitch                = 4.0
+	frame                   = 2.5
+	splitX                  = 0.7
+	plateRadius             = 65.0
+	holeRadius              = 22.5
+	plateThickness          = 1.5
+	touchTolerance          = 0.05 // how far a hex may be from the reinforcement band and still count as touching
+	skirtHeight             = 12.0
+	rotationDegrees         = 45.0
+	cornerArcCenterDistance = 33.94 // (41.3-17.3)*sqrt2 : distance of the skirt corner arc centre
 )
 
-type pt = tsumiki.V2
+type point = tsumiki.Vector2
 
-func hexPoly(c pt) []pt {
-	R := hexFlats / math.Sqrt(3)
-	out := make([]pt, 6)
+func hexPoly(c point) []point {
+	circumradius := hexAcrossFlats / math.Sqrt(3)
+	out := make([]point, 6)
 	for k := range out {
 		a := float64(k) * math.Pi / 3
-		out[k] = pt{c.X + R*math.Cos(a), c.Y + R*math.Sin(a)}
+		out[k] = point{c.X + circumradius*math.Cos(a), c.Y + circumradius*math.Sin(a)}
 	}
 	return out
 }
 
-func inRounded(p pt, half, r float64) bool {
-	a := -tsumiki.Rad(rot45)
+func inRounded(p point, halfSize, r float64) bool {
+	a := -tsumiki.Radians(rotationDegrees)
 	u := p.X*math.Cos(a) - p.Y*math.Sin(a)
 	v := p.X*math.Sin(a) + p.Y*math.Cos(a)
-	qx, qy := math.Abs(u)-(half-r), math.Abs(v)-(half-r)
+	qx, qy := math.Abs(u)-(halfSize-r), math.Abs(v)-(halfSize-r)
 	if qx > r || qy > r {
 		return false
 	}
 	return math.Max(qx, 0)*math.Max(qx, 0)+math.Max(qy, 0)*math.Max(qy, 0) <= r*r
 }
 
-func inBand(p pt, eps float64) bool {
-	return inRounded(p, 44.3+eps, 20.3+eps) && !inRounded(p, 38.3-eps, 14.3-eps)
+func inBand(p point, tolerance float64) bool {
+	return inRounded(p, 44.3+tolerance, 20.3+tolerance) && !inRounded(p, 38.3-tolerance, 14.3-tolerance)
 }
 
-func inHex(p, c pt) bool {
+func inHex(p, c point) bool {
 	for k := 0; k < 6; k++ {
 		a := float64(k)*math.Pi/3 + math.Pi/6
-		if (p.X-c.X)*math.Cos(a)+(p.Y-c.Y)*math.Sin(a) > hexFlats/2 {
+		if (p.X-c.X)*math.Cos(a)+(p.Y-c.Y)*math.Sin(a) > hexAcrossFlats/2 {
 			return false
 		}
 	}
@@ -64,37 +64,37 @@ func inHex(p, c pt) bool {
 
 // cells returns every hex centre whose hexagon lies >= 40% inside the meshed region, and the
 // subset that touches the reinforcement band.
-func cells() (all, nearBand []pt) {
-	R := hexFlats / math.Sqrt(3)
-	b1 := pt{hexPitch * math.Cos(math.Pi/6), hexPitch * math.Sin(math.Pi/6)}
-	b2 := pt{hexPitch * math.Cos(math.Pi/2), hexPitch * math.Sin(math.Pi/2)}
-	const n = 24
+func cells() (allCells, bandCells []point) {
+	circumradius := hexAcrossFlats / math.Sqrt(3)
+	basisA := point{hexPitch * math.Cos(math.Pi/6), hexPitch * math.Sin(math.Pi/6)}
+	basisB := point{hexPitch * math.Cos(math.Pi/2), hexPitch * math.Sin(math.Pi/2)}
+	const sampleCount = 24
 	for i := -40; i <= 40; i++ {
 		for j := -40; j <= 40; j++ {
-			c := pt{float64(i)*b1.X + float64(j)*b2.X, float64(i)*b1.Y + float64(j)*b2.Y}
+			c := point{float64(i)*basisA.X + float64(j)*basisB.X, float64(i)*basisA.Y + float64(j)*basisB.Y}
 			if math.Hypot(c.X, c.Y) > 70 {
 				continue
 			}
-			tot, in, band := 0, 0, 0
-			for a := 0; a < n; a++ {
-				for b := 0; b < n; b++ {
-					p := pt{c.X + ((float64(a)+.5)/n*2-1)*R, c.Y + ((float64(b)+.5)/n*2-1)*R}
+			total, inside, band := 0, 0, 0
+			for a := 0; a < sampleCount; a++ {
+				for b := 0; b < sampleCount; b++ {
+					p := point{c.X + ((float64(a)+.5)/sampleCount*2-1)*circumradius, c.Y + ((float64(b)+.5)/sampleCount*2-1)*circumradius}
 					if !inHex(p, c) {
 						continue
 					}
-					tot++
-					if r := math.Hypot(p.X, p.Y); r >= holeR+frame && r <= plateR-frame && p.X >= splitX+frame {
-						in++
+					total++
+					if r := math.Hypot(p.X, p.Y); r >= holeRadius+frame && r <= plateRadius-frame && p.X >= splitX+frame {
+						inside++
 					}
-					if inBand(p, touchEps) {
+					if inBand(p, touchTolerance) {
 						band++
 					}
 				}
 			}
-			if float64(in)/float64(tot) >= 0.4 {
-				all = append(all, c)
+			if float64(inside)/float64(total) >= 0.4 {
+				allCells = append(allCells, c)
 				if band > 0 {
-					nearBand = append(nearBand, c)
+					bandCells = append(bandCells, c)
 				}
 			}
 		}
@@ -102,17 +102,17 @@ func cells() (all, nearBand []pt) {
 	return
 }
 
-func hexSketch(z float64, cs []pt) *tsumiki.Sketch {
+func hexSketch(z float64, centers []point) *tsumiki.Sketch {
 	s := tsumiki.NewSketch(tsumiki.XY(z))
-	for _, c := range cs {
+	for _, c := range centers {
 		s.Polygon(hexPoly(c)...)
 	}
 	return s
 }
 
 func ring(z float64, outerHalf, outerR, innerHalf, innerR float64) *tsumiki.Sketch {
-	return tsumiki.NewSketch(tsumiki.XY(z)).RoundedRect(0, 0, 2*outerHalf, 2*outerHalf, outerR, rot45).
-		RoundedRect(0, 0, 2*innerHalf, 2*innerHalf, innerR, rot45)
+	return tsumiki.NewSketch(tsumiki.XY(z)).RoundedRect(0, 0, 2*outerHalf, 2*outerHalf, outerR, rotationDegrees).
+		RoundedRect(0, 0, 2*innerHalf, 2*innerHalf, innerR, rotationDegrees)
 }
 
 func discArea(z, r0, r1 float64) *tsumiki.Sketch {
@@ -126,166 +126,166 @@ func discArea(z, r0, r1 float64) *tsumiki.Sketch {
 // cornerCutter builds the plan-view region removed by an R3 rounding of the corner between the
 // end face x=splitX and a circle of radius rc (material on the side of the circle given by
 // outside: true = material inside the circle, false = material outside it); sign is +1/-1 for y.
-func cornerCutter(rc float64, materialInside bool, sign float64) []pt {
-	const rr = 3.0
-	cx := splitX + rr
-	var d float64 // distance of the fillet centre from the origin
+func cornerCutter(circleRadius float64, materialInside bool, sign float64) []point {
+	const filletRadius = 3.0
+	centerX := splitX + filletRadius
+	var filletCenterDistance float64 // distance of the fillet centre from the origin
 	if materialInside {
-		d = rc - rr
+		filletCenterDistance = circleRadius - filletRadius
 	} else {
-		d = rc + rr
+		filletCenterDistance = circleRadius + filletRadius
 	}
-	cy := math.Sqrt(d*d - cx*cx)
-	C := pt{cx, cy}
-	T1 := pt{splitX, cy}
-	T2 := C.Mul(rc / d)
-	P := pt{splitX, math.Sqrt(rc*rc - splitX*splitX)}
+	centerY := math.Sqrt(filletCenterDistance*filletCenterDistance - centerX*centerX)
+	filletCenter := point{centerX, centerY}
+	tangentOnLine := point{splitX, centerY}
+	tangentOnCircle := filletCenter.Scale(circleRadius / filletCenterDistance)
+	cornerPoint := point{splitX, math.Sqrt(circleRadius*circleRadius - splitX*splitX)}
 	// arc on the fillet circle from T1 to T2 (the short way), then along the big circle back to P
-	arc := func(c pt, rad float64, from, to pt, n int) []pt {
-		a0 := math.Atan2(from.Y-c.Y, from.X-c.X)
-		a1 := math.Atan2(to.Y-c.Y, to.X-c.X)
-		for a1-a0 > math.Pi {
-			a1 -= 2 * math.Pi
+	arc := func(c point, radius float64, from, to point, n int) []point {
+		startAngle := math.Atan2(from.Y-c.Y, from.X-c.X)
+		endAngle := math.Atan2(to.Y-c.Y, to.X-c.X)
+		for endAngle-startAngle > math.Pi {
+			endAngle -= 2 * math.Pi
 		}
-		for a1-a0 < -math.Pi {
-			a1 += 2 * math.Pi
+		for endAngle-startAngle < -math.Pi {
+			endAngle += 2 * math.Pi
 		}
-		out := make([]pt, 0, n)
+		out := make([]point, 0, n)
 		for i := 1; i < n; i++ {
-			a := a0 + (a1-a0)*float64(i)/float64(n)
-			out = append(out, pt{c.X + rad*math.Cos(a), c.Y + rad*math.Sin(a)})
+			a := startAngle + (endAngle-startAngle)*float64(i)/float64(n)
+			out = append(out, point{c.X + radius*math.Cos(a), c.Y + radius*math.Sin(a)})
 		}
 		return out
 	}
-	poly := []pt{P, T1}
-	poly = append(poly, arc(C, rr, T1, T2, 40)...)
-	poly = append(poly, T2)
-	poly = append(poly, arc(pt{}, rc, T2, P, 40)...)
+	poly := []point{cornerPoint, tangentOnLine}
+	poly = append(poly, arc(filletCenter, filletRadius, tangentOnLine, tangentOnCircle, 40)...)
+	poly = append(poly, tangentOnCircle)
+	poly = append(poly, arc(point{}, circleRadius, tangentOnCircle, cornerPoint, 40)...)
 	for i := range poly {
 		poly[i].Y *= sign
 	}
 	return poly
 }
 
-func step(p *tsumiki.Part, tag string, t0 *time.Time) {
-	if p.Err() != nil {
-		fmt.Printf("!! %s: %v\n", tag, p.Err())
+func step(part *tsumiki.Part, tag string, stepStart *time.Time) {
+	if part.Err() != nil {
+		fmt.Printf("!! %s: %v\n", tag, part.Err())
 		os.Exit(1)
 	}
-	r := p.Report()
-	lo, hi := p.Mesh().Bounds()
+	r := part.Report()
+	lo, hi := part.Mesh().Bounds()
 	fmt.Printf("%-34s tris=%-6d vol=%10.2f open=%d nm=%d  bbox x[%.2f,%.2f] y[%.2f,%.2f] z[%.2f,%.2f]  %.1fs\n",
-		tag, r.Tris, r.Volume, r.OpenEdges, r.NonManifold, lo.X, hi.X, lo.Y, hi.Y, lo.Z, hi.Z, time.Since(*t0).Seconds())
-	*t0 = time.Now()
+		tag, r.Triangles, r.Volume, r.OpenEdges, r.NonManifold, lo.X, hi.X, lo.Y, hi.Y, lo.Z, hi.Z, time.Since(*stepStart).Seconds())
+	*stepStart = time.Now()
 }
 
 func main() {
-	t0 := time.Now()
-	all, nearBand := cells()
-	fmt.Printf("hex cells: %d (spec 364), recess cells: %d (spec 100)\n", len(all), len(nearBand))
+	stepStart := time.Now()
+	allCells, bandCells := cells()
+	fmt.Printf("hex cells: %d (spec 364), recess cells: %d (spec 100)\n", len(allCells), len(bandCells))
 
-	p := tsumiki.NewPart("prestera90-guard")
+	part := tsumiki.NewPart("prestera90-guard")
 
 	// 1. plate
-	p.Extrude(discArea(0, holeR, plateR), plateT)
-	step(p, "1 plate r65 / hole 22.5", &t0)
+	part.Extrude(discArea(0, holeRadius, plateRadius), plateThickness)
+	step(part, "1 plate r65 / hole 22.5", &stepStart)
 
 	// 2. skirt: rounded-square ring, 12 below the plate, biting 0.5 into it
-	p.Extrude(ring(-skirtH, 41.3, 17.3, 38.3, 14.3), skirtH+0.5)
-	step(p, "2 skirt", &t0)
+	part.Extrude(ring(-skirtHeight, 41.3, 17.3, 38.3, 14.3), skirtHeight+0.5)
+	step(part, "2 skirt", &stepStart)
 
 	// 3. fillet: outer profile grows 45deg for 3 mm, the cavity is cut back out
-	fil := tsumiki.NewPart("fillet")
-	fil.Extrude(tsumiki.NewSketch(tsumiki.XY(-3)).RoundedRect(0, 0, 82.6, 82.6, 17.3, rot45), 3, tsumiki.Taper(45))
-	fil.Extrude(tsumiki.NewSketch(tsumiki.XY(-4)).RoundedRect(0, 0, 76.6, 76.6, 14.3, rot45), 5, tsumiki.Cut())
-	p.Combine(tsumiki.OpJoin, fil)
-	step(p, "3 fillet 45deg x3", &t0)
+	fillet := tsumiki.NewPart("fillet")
+	fillet.Extrude(tsumiki.NewSketch(tsumiki.XY(-3)).RoundedRect(0, 0, 82.6, 82.6, 17.3, rotationDegrees), 3, tsumiki.Taper(45))
+	fillet.Extrude(tsumiki.NewSketch(tsumiki.XY(-4)).RoundedRect(0, 0, 76.6, 76.6, 14.3, rotationDegrees), 5, tsumiki.Cut())
+	part.Combine(tsumiki.OperationJoin, fillet)
+	step(part, "3 fillet 45deg x3", &stepStart)
 
 	// 4. hexagonal through holes
-	p.Extrude(hexSketch(0, all), plateT, tsumiki.Cut())
-	step(p, "4 hex through holes", &t0)
+	part.Extrude(hexSketch(0, allCells), plateThickness, tsumiki.Cut())
+	step(part, "4 hex through holes", &stepStart)
 
 	// 5. reinforcement band (solid) over the wall + fillet
-	p.Extrude(ring(0, 44.3, 20.3, 38.3, 14.3), plateT)
-	step(p, "5 reinforcement band", &t0)
+	part.Extrude(ring(0, 44.3, 20.3, 38.3, 14.3), plateThickness)
+	step(part, "5 reinforcement band", &stepStart)
 
 	// 6. hex recesses 0.6 deep from the top, on cells touching the band
-	p.Extrude(hexSketch(plateT-0.6, nearBand), 0.6, tsumiki.Cut())
-	step(p, "6 hex recesses", &t0)
+	part.Extrude(hexSketch(plateThickness-0.6, bandCells), 0.6, tsumiki.Cut())
+	step(part, "6 hex recesses", &stepStart)
 
 	// 7. frame restore: outer ring, hole ring, split-edge strip
-	p.Extrude(discArea(0, plateR-frame, plateR), plateT)
-	p.Extrude(discArea(0, holeR, holeR+frame), plateT)
-	strip := tsumiki.NewPart("strip").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect((0+splitX+frame)/2, 0, splitX+frame, 2*plateR), plateT)
-	strip.Combine(tsumiki.OpIntersect, tsumiki.NewPart("annulus").Extrude(discArea(0, holeR, plateR), plateT))
-	p.Combine(tsumiki.OpJoin, strip)
-	step(p, "7 frame restore", &t0)
+	part.Extrude(discArea(0, plateRadius-frame, plateRadius), plateThickness)
+	part.Extrude(discArea(0, holeRadius, holeRadius+frame), plateThickness)
+	strip := tsumiki.NewPart("strip").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect((0+splitX+frame)/2, 0, splitX+frame, 2*plateRadius), plateThickness)
+	strip.Combine(tsumiki.OperationIntersect, tsumiki.NewPart("annulus").Extrude(discArea(0, holeRadius, plateRadius), plateThickness))
+	part.Combine(tsumiki.OperationJoin, strip)
+	step(part, "7 frame restore", &stepStart)
 
 	// 8. zip-tie bumps: 10 mm long triangular rib around each corner arc, 7..9 mm below the plate
 	bump := tsumiki.NewPart("bump").Revolve(
-		tsumiki.NewSketch(tsumiki.XZ(0)).Polygon(pt{16.8, -9}, pt{17.3, -9}, pt{18.3, -8}, pt{17.3, -7}, pt{16.8, -7}),
+		tsumiki.NewSketch(tsumiki.XZ(0)).Polygon(point{16.8, -9}, point{17.3, -9}, point{18.3, -8}, point{17.3, -7}, point{16.8, -7}),
 		math.Round(10/17.3*180/math.Pi*100)/100)
-	half := 10 / 17.3 / 2 * 180 / math.Pi
-	bump.RotateZ(-half)
-	for _, ang := range []float64{0, 90, -90} {
-		b := bump.Clone("bump").RotateZ(ang)
-		c := pt{cornerOff, 0}.Rot(tsumiki.Rad(ang))
+	halfAngleDegrees := 10 / 17.3 / 2 * 180 / math.Pi
+	bump.RotateZ(-halfAngleDegrees)
+	for _, angleDegrees := range []float64{0, 90, -90} {
+		b := bump.Clone("bump").RotateZ(angleDegrees)
+		c := point{cornerArcCenterDistance, 0}.Rotate(tsumiki.Radians(angleDegrees))
 		b.Translate(c.X, c.Y, 0)
-		p.Combine(tsumiki.OpJoin, b)
+		part.Combine(tsumiki.OperationJoin, b)
 	}
-	step(p, "8 zip-tie bumps", &t0)
+	step(part, "8 zip-tie bumps", &stepStart)
 
 	// 9. rim slit inside the skirt: 2 mm straight, then a 45deg ceiling (1.2 mm)
 	slit := tsumiki.NewPart("slit")
-	slit.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, 79.0, 79.0, 15.5, rot45), -2)
-	slit.Extrude(tsumiki.NewSketch(tsumiki.XY(-2)).RoundedRect(0, 0, 79.0, 79.0, 15.5, rot45), -1.2, tsumiki.Taper(-45))
-	p.Combine(tsumiki.OpCut, slit)
-	step(p, "9 rim slit + 45deg ceiling", &t0)
+	slit.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, 79.0, 79.0, 15.5, rotationDegrees), -2)
+	slit.Extrude(tsumiki.NewSketch(tsumiki.XY(-2)).RoundedRect(0, 0, 79.0, 79.0, 15.5, rotationDegrees), -1.2, tsumiki.Taper(-45))
+	part.Combine(tsumiki.OperationCut, slit)
+	step(part, "9 rim slit + 45deg ceiling", &stepStart)
 
 	// 10. split at x = 0.7
-	p.Extrude(tsumiki.NewSketch(tsumiki.XY(-20)).Rect((splitX-100)/2, 0, 100+splitX, 300), 40, tsumiki.Cut())
-	step(p, "10 split x=0.7", &t0)
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(-20)).Rect((splitX-100)/2, 0, 100+splitX, 300), 40, tsumiki.Cut())
+	step(part, "10 split x=0.7", &stepStart)
 
 	// 11. R3 on the four vertical end corners
 	for _, s := range []float64{1, -1} {
-		p.Extrude(tsumiki.NewSketch(tsumiki.XY(-1)).Polygon(cornerCutter(plateR, true, s)...), 3.5, tsumiki.Cut())
-		p.Extrude(tsumiki.NewSketch(tsumiki.XY(-1)).Polygon(cornerCutter(holeR, false, s)...), 3.5, tsumiki.Cut())
+		part.Extrude(tsumiki.NewSketch(tsumiki.XY(-1)).Polygon(cornerCutter(plateRadius, true, s)...), 3.5, tsumiki.Cut())
+		part.Extrude(tsumiki.NewSketch(tsumiki.XY(-1)).Polygon(cornerCutter(holeRadius, false, s)...), 3.5, tsumiki.Cut())
 	}
-	step(p, "11 R3 end corners", &t0)
+	step(part, "11 R3 end corners", &stepStart)
 
 	// 12. R1 on the top outer rim, as a revolve cut
-	const rr = 1.0
+	const rimRadius = 1.0
 	rim := tsumiki.NewSketch(tsumiki.XZ(0))
-	rim.Path(plateR-rr, plateT).ArcTo(plateR, plateT-rr, plateR-rr, plateT-rr, false).
-		LineTo(plateR+0.5, plateT-rr).LineTo(plateR+0.5, plateT+0.5).LineTo(plateR-rr, plateT+0.5).Close()
-	p.Revolve(rim, 360, tsumiki.Cut())
-	step(p, "12 R1 top rim (revolve cut)", &t0)
+	rim.Path(plateRadius-rimRadius, plateThickness).ArcTo(plateRadius, plateThickness-rimRadius, plateRadius-rimRadius, plateThickness-rimRadius, false).
+		LineTo(plateRadius+0.5, plateThickness-rimRadius).LineTo(plateRadius+0.5, plateThickness+0.5).LineTo(plateRadius-rimRadius, plateThickness+0.5).Close()
+	part.Revolve(rim, 360, tsumiki.Cut())
+	step(part, "12 R1 top rim (revolve cut)", &stepStart)
 
 	// 13. wire notch: semicircle r1.5 at the +y end of the split face, plate thickness only
-	p.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(splitX, math.Sqrt(45.7*45.7-splitX*splitX), 1.5), plateT, tsumiki.Cut())
-	step(p, "13 wire notch", &t0)
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(splitX, math.Sqrt(45.7*45.7-splitX*splitX), 1.5), plateThickness, tsumiki.Cut())
+	step(part, "13 wire notch", &stepStart)
 
 	fmt.Println()
-	fmt.Print(p.Timeline())
-	m := p.Mesh()
-	lo, hi := m.Bounds()
-	rep := p.Report()
+	fmt.Print(part.Timeline())
+	mesh := part.Mesh()
+	lo, hi := mesh.Bounds()
+	report := part.Report()
 	fmt.Printf("\nbbox  x %.3f..%.3f (0.7..65)  y %.3f..%.3f (±64.89)  z %.3f..%.3f (-12..1.5)\n", lo.X, hi.X, lo.Y, hi.Y, lo.Z, hi.Z)
-	fmt.Printf("volume %.2f (spec ≈9979.6)   watertight=%v  %+v\n", rep.Volume, rep.Watertight(), rep)
+	fmt.Printf("volume %.2f (spec ≈9979.6)   watertight=%v  %+v\n", report.Volume, report.Watertight(), report)
 
 	// point-in/out table of spec section 5
 	type probe struct {
-		x, y, z float64
-		in      bool
-		what    string
+		x, y, z     float64
+		inside      bool
+		description string
 	}
 	probes := []probe{
 		{0.9, 35, 0.7, true, "split-edge frame"},
 		{0.4, 35, 0.7, false, "before split plane"},
-		{cornerOff + 17.5, 0, -7.5, true, "bump inside"},
-		{cornerOff + 18.1, 0, -7.5, false, "bump outside"},
-		{cornerOff + 18.5, 0, -1.5, true, "fillet inside"},
-		{cornerOff + 19.2, 0, -1.5, false, "fillet outside"},
+		{cornerArcCenterDistance + 17.5, 0, -7.5, true, "bump inside"},
+		{cornerArcCenterDistance + 18.1, 0, -7.5, false, "bump outside"},
+		{cornerArcCenterDistance + 18.5, 0, -1.5, true, "fillet inside"},
+		{cornerArcCenterDistance + 19.2, 0, -1.5, false, "fillet outside"},
 		{49.0, 0, -1.0, false, "slit space"},
 		{48.8, 0, -3.0, true, "under slit ceiling slope"},
 		{1.2, 45.695, 0.7, false, "wire notch"},
@@ -295,24 +295,24 @@ func main() {
 		{64.9, 0, 0.2, true, "rim lower"},
 		{63.0, 0, 0.7, true, "outer frame"},
 	}
-	bad := 0
+	mismatchCount := 0
 	for _, q := range probes {
-		got := contains(m, tsumiki.V3{X: q.x, Y: q.y, Z: q.z})
+		got := contains(mesh, tsumiki.Vector3{X: q.x, Y: q.y, Z: q.z})
 		mark := "ok"
-		if got != q.in {
+		if got != q.inside {
 			mark = "MISMATCH"
-			bad++
+			mismatchCount++
 		}
-		fmt.Printf("  (%7.3f,%7.3f,%6.2f) want %-5v got %-5v %-9s %s\n", q.x, q.y, q.z, q.in, got, mark, q.what)
+		fmt.Printf("  (%7.3f,%7.3f,%6.2f) want %-5v got %-5v %-9s %s\n", q.x, q.y, q.z, q.inside, got, mark, q.description)
 	}
-	fmt.Printf("probe mismatches: %d / %d\n", bad, len(probes))
+	fmt.Printf("probe mismatches: %d / %d\n", mismatchCount, len(probes))
 
 	if len(os.Args) > 1 {
 		dir := os.Args[1]
-		if err := m.Save3MF(dir+"/prestera90_guard.3mf", "prestera90-guard"); err != nil {
+		if err := mesh.Save3MF(dir+"/prestera90_guard.3mf", "prestera90-guard"); err != nil {
 			fmt.Println(err)
 		}
-		if err := m.SaveSTL(dir + "/prestera90_guard.stl"); err != nil {
+		if err := mesh.SaveSTL(dir + "/prestera90_guard.stl"); err != nil {
 			fmt.Println(err)
 		}
 		fmt.Println("saved to", dir)
@@ -320,31 +320,31 @@ func main() {
 }
 
 // contains is a parity ray test; three skew directions vote to avoid hitting edges exactly.
-func contains(m *tsumiki.Mesh, q tsumiki.V3) bool {
-	dirs := []tsumiki.V3{{X: 0.5773, Y: 0.3141, Z: 0.7532}, {X: -0.2718, Y: 0.8123, Z: 0.5127}, {X: 0.1234, Y: -0.6543, Z: 0.7456}}
+func contains(m *tsumiki.Mesh, q tsumiki.Vector3) bool {
+	directions := []tsumiki.Vector3{{X: 0.5773, Y: 0.3141, Z: 0.7532}, {X: -0.2718, Y: 0.8123, Z: 0.5127}, {X: 0.1234, Y: -0.6543, Z: 0.7456}}
 	votes := 0
-	for _, d := range dirs {
+	for _, d := range directions {
 		hits := 0
-		for _, t := range m.T {
-			a, b, c := m.V[t[0]], m.V[t[1]], m.V[t[2]]
-			e1, e2 := b.Sub(a), c.Sub(a)
-			h := d.Cross(e2)
-			det := e1.Dot(h)
-			if math.Abs(det) < 1e-12 {
+		for _, t := range m.Triangles {
+			a, b, c := m.Vertices[t[0]], m.Vertices[t[1]], m.Vertices[t[2]]
+			firstEdge, secondEdge := b.Sub(a), c.Sub(a)
+			h := d.Cross(secondEdge)
+			determinant := firstEdge.Dot(h)
+			if math.Abs(determinant) < 1e-12 {
 				continue
 			}
-			f := 1 / det
+			f := 1 / determinant
 			s := q.Sub(a)
 			u := f * s.Dot(h)
 			if u < 0 || u > 1 {
 				continue
 			}
-			qv := s.Cross(e1)
+			qv := s.Cross(firstEdge)
 			v := f * d.Dot(qv)
 			if v < 0 || u+v > 1 {
 				continue
 			}
-			if f*e2.Dot(qv) > 0 {
+			if f*secondEdge.Dot(qv) > 0 {
 				hits++
 			}
 		}

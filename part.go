@@ -16,18 +16,18 @@ import (
 // The Go source is the history; there is no parametric recompute. Internally the body is an
 // exact polygon soup (see exact.go) so a long chain of booleans never accumulates epsilon errors.
 type Part struct {
-	Name string
-	s    Solid
-	Log  []Feature
-	err  error
-	mesh *Mesh // cache
+	Name  string
+	solid Solid
+	Log   []Feature
+	err   error
+	mesh  *Mesh // cache
 }
 
 // Feature is one timeline entry with the state of the body after it.
 type Feature struct {
-	Name   string
-	Op     BoolOp
-	Report Report
+	Name      string
+	Operation BooleanOperation
+	Report    Report
 }
 
 // NewPart creates an empty part.
@@ -38,11 +38,11 @@ func (p *Part) Err() error { return p.err }
 
 // Mesh returns the current body as a cleaned triangle mesh (nil when empty). Do not modify it.
 func (p *Part) Mesh() *Mesh {
-	if len(p.s) == 0 {
+	if len(p.solid) == 0 {
 		return nil
 	}
 	if p.mesh == nil {
-		p.mesh = p.s.Mesh()
+		p.mesh = p.solid.Mesh()
 	}
 	return p.mesh
 }
@@ -60,75 +60,77 @@ func (p *Part) Timeline() string {
 	var sb strings.Builder
 	for i, f := range p.Log {
 		fmt.Fprintf(&sb, "%2d %-30s %-9s tris=%-6d vol=%11.3f open=%d nonmanifold=%d\n",
-			i+1, f.Name, f.Op, f.Report.Tris, f.Report.Volume, f.Report.OpenEdges, f.Report.NonManifold)
+			i+1, f.Name, f.Operation, f.Report.Triangles, f.Report.Volume, f.Report.OpenEdges, f.Report.NonManifold)
 	}
 	return sb.String()
 }
 
-type featureOpt struct {
-	op    BoolOp
-	taper float64
-	start float64
+type featureOptions struct {
+	operation BooleanOperation
+	taper     float64
+	start     float64
 }
 
-// FeatureOpt tweaks Extrude / Revolve.
-type FeatureOpt func(*featureOpt)
+// FeatureOption tweaks Extrude / Revolve.
+type FeatureOption func(*featureOptions)
 
 // Cut subtracts the feature from the body.
-func Cut() FeatureOpt { return func(o *featureOpt) { o.op = OpCut } }
+func Cut() FeatureOption { return func(o *featureOptions) { o.operation = OperationCut } }
 
 // Intersect keeps only the overlap of the feature and the body.
-func Intersect() FeatureOpt { return func(o *featureOpt) { o.op = OpIntersect } }
+func Intersect() FeatureOption { return func(o *featureOptions) { o.operation = OperationIntersect } }
 
 // Taper sets the taper angle in degrees; positive grows the section with distance.
-func Taper(deg float64) FeatureOpt { return func(o *featureOpt) { o.taper = deg } }
+func Taper(degrees float64) FeatureOption { return func(o *featureOptions) { o.taper = degrees } }
 
 // StartOffset shifts the start of the extrusion along the plane normal.
-func StartOffset(d float64) FeatureOpt { return func(o *featureOpt) { o.start = d } }
+func StartOffset(distance float64) FeatureOption {
+	return func(o *featureOptions) { o.start = distance }
+}
 
-func options(opts []FeatureOpt) featureOpt {
-	o := featureOpt{op: OpJoin}
-	for _, f := range opts {
+func resolveOptions(options []FeatureOption) featureOptions {
+	o := featureOptions{operation: OperationJoin}
+	for _, f := range options {
 		f(&o)
 	}
 	return o
 }
 
-// Extrude extrudes all regions of s by dist along the sketch normal (negative = opposite side).
-func (p *Part) Extrude(s *Sketch, dist float64, opts ...FeatureOpt) *Part {
+// Extrude extrudes all regions of s by distance along the sketch normal (negative = opposite side).
+func (p *Part) Extrude(s *Sketch, distance float64, options ...FeatureOption) *Part {
 	if p.err != nil {
 		return p
 	}
-	o := options(opts)
-	regs := s.regions()
-	if len(regs) == 0 {
+	o := resolveOptions(options)
+	regions := s.regions()
+	if len(regions) == 0 {
 		p.err = errors.New("extrude: sketch has no closed profile")
 		return p
 	}
-	name := fmt.Sprintf("extrude %.4g", dist)
+	name := fmt.Sprintf("extrude %.4g", distance)
 	if o.taper != 0 {
 		name += fmt.Sprintf(" taper %.3g°", o.taper)
 	}
-	tool, err := extrudeMesh(s.Plane, regs, dist, o.taper, o.start)
+	tool, err := extrudeMesh(s.Plane, regions, distance, o.taper, o.start)
 	if err != nil {
 		p.err = fmt.Errorf("extrude: %w", err)
 		return p
 	}
-	return p.apply(name, o.op, tool)
+	return p.apply(name, o.operation, tool)
 }
 
-// Revolve sweeps the sketch around its plane's V axis (the line u=0) by angleDeg.
-func (p *Part) Revolve(s *Sketch, angleDeg float64, opts ...FeatureOpt) *Part {
+// Revolve sweeps the sketch around its plane's V axis (the line u=0) by angleDegrees.
+func (p *Part) Revolve(s *Sketch, angleDegrees float64, options ...FeatureOption) *Part {
 	if p.err != nil {
 		return p
 	}
-	o := options(opts)
-	regs := s.regions()
-	if len(regs) == 0 {
+	o := resolveOptions(options)
+	regions := s.regions()
+	if len(regions) == 0 {
 		p.err = errors.New("revolve: sketch has no closed profile")
 		return p
 	}
-	for _, r := range regs {
+	for _, r := range regions {
 		for _, q := range r.Outer {
 			if q.X < -1e-9 {
 				p.err = errors.New("revolve: profile crosses the axis (u < 0)")
@@ -136,73 +138,73 @@ func (p *Part) Revolve(s *Sketch, angleDeg float64, opts ...FeatureOpt) *Part {
 			}
 		}
 	}
-	return p.apply(fmt.Sprintf("revolve %.4g°", angleDeg), o.op, revolveMesh(s.Plane, regs, angleDeg, s.Tol))
+	return p.apply(fmt.Sprintf("revolve %.4g°", angleDegrees), o.operation, revolveMesh(s.Plane, regions, angleDegrees, s.Tolerance))
 }
 
 // Combine joins/cuts/intersects another part into this one.
-func (p *Part) Combine(op BoolOp, other *Part) *Part {
+func (p *Part) Combine(operation BooleanOperation, other *Part) *Part {
 	if p.err != nil {
 		return p
 	}
-	if len(other.s) == 0 {
+	if len(other.solid) == 0 {
 		p.err = errors.New("combine: other part is empty")
 		return p
 	}
-	return p.applySolid("combine "+other.Name, op, other.s)
+	return p.applySolid("combine "+other.Name, operation, other.solid)
 }
 
-func (p *Part) apply(name string, op BoolOp, tool *Mesh) *Part {
-	ts, err := meshToSolid(tool)
+func (p *Part) apply(name string, operation BooleanOperation, tool *Mesh) *Part {
+	toolSolid, err := meshToSolid(tool)
 	if err != nil {
 		p.err = fmt.Errorf("%s: %w", name, err)
 		return p
 	}
-	return p.applySolid(name, op, ts)
+	return p.applySolid(name, operation, toolSolid)
 }
 
-func (p *Part) applySolid(name string, op BoolOp, tool Solid) *Part {
+func (p *Part) applySolid(name string, operation BooleanOperation, tool Solid) *Part {
 	switch {
-	case len(p.s) == 0 && op == OpJoin:
-		p.s = tool
-	case len(p.s) == 0:
-		p.err = fmt.Errorf("%s: %s on an empty body", name, op)
+	case len(p.solid) == 0 && operation == OperationJoin:
+		p.solid = tool
+	case len(p.solid) == 0:
+		p.err = fmt.Errorf("%s: %s on an empty body", name, operation)
 		return p
 	default:
-		p.s = BooleanSolid(op, p.s, tool)
+		p.solid = BooleanSolid(operation, p.solid, tool)
 	}
 	p.mesh = nil
-	p.Log = append(p.Log, Feature{Name: name, Op: op, Report: p.Report()})
+	p.Log = append(p.Log, Feature{Name: name, Operation: operation, Report: p.Report()})
 	return p
 }
 
 // Clone copies the part (polygons are immutable, so this is cheap).
 func (p *Part) Clone(name string) *Part {
-	return &Part{Name: name, s: append(Solid(nil), p.s...), Log: append([]Feature(nil), p.Log...), err: p.err}
+	return &Part{Name: name, solid: append(Solid(nil), p.solid...), Log: append([]Feature(nil), p.Log...), err: p.err}
 }
 
 // Translate moves the body; the offset is rounded to the 1 µm lattice so the move is exact.
 func (p *Part) Translate(dx, dy, dz float64) *Part {
-	if len(p.s) > 0 {
-		p.s = p.s.translate([3]int64{int64(math.Round(dx * lattice)), int64(math.Round(dy * lattice)), int64(math.Round(dz * lattice))})
+	if len(p.solid) > 0 {
+		p.solid = p.solid.translate([3]int64{int64(math.Round(dx * lattice)), int64(math.Round(dy * lattice)), int64(math.Round(dz * lattice))})
 		p.mesh = nil
 	}
 	return p
 }
 
 // RotateZ rotates the body around the Z axis through the origin (re-snaps to the lattice).
-func (p *Part) RotateZ(deg float64) *Part {
+func (p *Part) RotateZ(degrees float64) *Part {
 	m := p.Mesh()
 	if m == nil {
 		return p
 	}
 	r := m.Clone()
-	s, c := math.Sincos(Rad(deg))
-	r.transform(func(v V3) V3 { return V3{v.X*c - v.Y*s, v.X*s + v.Y*c, v.Z} }, false)
-	ns, err := meshToSolid(r)
+	s, c := math.Sincos(Radians(degrees))
+	r.transform(func(v Vector3) Vector3 { return Vector3{v.X*c - v.Y*s, v.X*s + v.Y*c, v.Z} }, false)
+	newSolid, err := meshToSolid(r)
 	if err != nil {
 		p.err = err
 		return p
 	}
-	p.s, p.mesh = ns, nil
+	p.solid, p.mesh = newSolid, nil
 	return p
 }

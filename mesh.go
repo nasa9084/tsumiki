@@ -4,53 +4,53 @@ import (
 	"math"
 )
 
-// Tri indexes three vertices, counter-clockwise seen from outside.
-type Tri [3]int
+// Triangle indexes three vertices, counter-clockwise seen from outside.
+type Triangle [3]int
 
 // Mesh is an indexed triangle mesh.
 type Mesh struct {
-	V []V3
-	T []Tri
+	Vertices  []Vector3
+	Triangles []Triangle
 }
 
 // Volume returns the signed volume (positive for outward-facing windings).
 func (m *Mesh) Volume() float64 {
 	v := 0.0
-	for _, t := range m.T {
-		v += m.V[t[0]].Dot(m.V[t[1]].Cross(m.V[t[2]]))
+	for _, t := range m.Triangles {
+		v += m.Vertices[t[0]].Dot(m.Vertices[t[1]].Cross(m.Vertices[t[2]]))
 	}
 	return v / 6
 }
 
 // Bounds returns the axis-aligned bounding box.
-func (m *Mesh) Bounds() (lo, hi V3) {
-	if len(m.V) == 0 {
+func (m *Mesh) Bounds() (lo, hi Vector3) {
+	if len(m.Vertices) == 0 {
 		return
 	}
-	lo = V3{math.Inf(1), math.Inf(1), math.Inf(1)}
-	hi = lo.Neg()
-	for _, p := range m.V {
-		lo = V3{math.Min(lo.X, p.X), math.Min(lo.Y, p.Y), math.Min(lo.Z, p.Z)}
-		hi = V3{math.Max(hi.X, p.X), math.Max(hi.Y, p.Y), math.Max(hi.Z, p.Z)}
+	lo = Vector3{math.Inf(1), math.Inf(1), math.Inf(1)}
+	hi = lo.Negate()
+	for _, p := range m.Vertices {
+		lo = Vector3{math.Min(lo.X, p.X), math.Min(lo.Y, p.Y), math.Min(lo.Z, p.Z)}
+		hi = Vector3{math.Max(hi.X, p.X), math.Max(hi.Y, p.Y), math.Max(hi.Z, p.Z)}
 	}
 	return
 }
 
 // Clone deep-copies the mesh.
 func (m *Mesh) Clone() *Mesh {
-	return &Mesh{V: append([]V3(nil), m.V...), T: append([]Tri(nil), m.T...)}
+	return &Mesh{Vertices: append([]Vector3(nil), m.Vertices...), Triangles: append([]Triangle(nil), m.Triangles...)}
 }
 
 func (m *Mesh) flip() {
-	for i, t := range m.T {
-		m.T[i] = Tri{t[0], t[2], t[1]}
+	for i, t := range m.Triangles {
+		m.Triangles[i] = Triangle{t[0], t[2], t[1]}
 	}
 }
 
 // Report summarises mesh health.
 type Report struct {
-	Tris        int
-	Verts       int
+	Triangles   int
+	Vertices    int
 	Volume      float64
 	OpenEdges   int // directed edges without an opposite partner (cracks)
 	NonManifold int // directed edges used more than once
@@ -62,9 +62,9 @@ func (r Report) Watertight() bool { return r.OpenEdges == 0 && r.NonManifold == 
 
 // Validate inspects topology.
 func (m *Mesh) Validate() Report {
-	r := Report{Tris: len(m.T), Verts: len(m.V), Volume: m.Volume()}
+	r := Report{Triangles: len(m.Triangles), Vertices: len(m.Vertices), Volume: m.Volume()}
 	edges := map[[2]int]int{}
-	for _, t := range m.T {
+	for _, t := range m.Triangles {
 		if t[0] == t[1] || t[1] == t[2] || t[2] == t[0] {
 			r.Degenerate++
 			continue
@@ -87,32 +87,32 @@ func (m *Mesh) Validate() Report {
 // ---- cleaning: weld, T-junction repair, degenerate / internal-face removal ----
 
 const (
-	weldEps  = 1e-6 // merge vertices closer than this (mm)
-	tjuncEps = 1e-6 // a vertex this close to an edge is treated as lying on it
-	flatEps  = 5e-7 // triangles thinner than this are slivers and are dropped
+	weldEpsilon      = 1e-6 // merge vertices closer than this (mm)
+	tJunctionEpsilon = 1e-6 // a vertex this close to an edge is treated as lying on it
+	flatEpsilon      = 5e-7 // triangles thinner than this are slivers and are dropped
 )
 
 type cellKey [3]int32
 
-func keyOf(p V3, cell float64) cellKey {
+func cellKeyOf(p Vector3, cell float64) cellKey {
 	return cellKey{int32(math.Floor(p.X / cell)), int32(math.Floor(p.Y / cell)), int32(math.Floor(p.Z / cell))}
 }
 
-// Weld merges vertices closer than eps and drops unused vertices.
-func (m *Mesh) Weld(eps float64) {
-	cell := eps * 4
+// Weld merges vertices closer than epsilon and drops unused vertices.
+func (m *Mesh) Weld(epsilon float64) {
+	cell := epsilon * 4
 	grid := map[cellKey][]int{}
-	remap := make([]int, len(m.V))
-	var nv []V3
-	for i, p := range m.V {
-		k := keyOf(p, cell)
+	remap := make([]int, len(m.Vertices))
+	var newVertices []Vector3
+	for i, p := range m.Vertices {
+		k := cellKeyOf(p, cell)
 		found := -1
 	search:
 		for dx := int32(-1); dx <= 1; dx++ {
 			for dy := int32(-1); dy <= 1; dy++ {
 				for dz := int32(-1); dz <= 1; dz++ {
 					for _, j := range grid[cellKey{k[0] + dx, k[1] + dy, k[2] + dz}] {
-						if nv[j].Sub(p).Len() <= eps {
+						if newVertices[j].Sub(p).Length() <= epsilon {
 							found = j
 							break search
 						}
@@ -121,50 +121,50 @@ func (m *Mesh) Weld(eps float64) {
 			}
 		}
 		if found < 0 {
-			found = len(nv)
-			nv = append(nv, p)
+			found = len(newVertices)
+			newVertices = append(newVertices, p)
 			grid[k] = append(grid[k], found)
 		}
 		remap[i] = found
 	}
-	for i, t := range m.T {
-		m.T[i] = Tri{remap[t[0]], remap[t[1]], remap[t[2]]}
+	for i, t := range m.Triangles {
+		m.Triangles[i] = Triangle{remap[t[0]], remap[t[1]], remap[t[2]]}
 	}
-	m.V = nv
+	m.Vertices = newVertices
 }
 
-func triArea(a, b, c V3) float64 { return b.Sub(a).Cross(c.Sub(a)).Len() / 2 }
+func triangleArea(a, b, c Vector3) float64 { return b.Sub(a).Cross(c.Sub(a)).Length() / 2 }
 
 // dropRepeated removes triangles that use the same vertex twice.
 func (m *Mesh) dropRepeated() {
-	out := m.T[:0]
-	for _, t := range m.T {
+	out := m.Triangles[:0]
+	for _, t := range m.Triangles {
 		if t[0] != t[1] && t[1] != t[2] && t[2] != t[0] {
 			out = append(out, t)
 		}
 	}
-	m.T = out
+	m.Triangles = out
 }
 
 func (m *Mesh) dropDegenerate() {
-	out := m.T[:0]
-	for _, t := range m.T {
+	out := m.Triangles[:0]
+	for _, t := range m.Triangles {
 		if t[0] == t[1] || t[1] == t[2] || t[2] == t[0] {
 			continue
 		}
-		if triArea(m.V[t[0]], m.V[t[1]], m.V[t[2]]) < 1e-12 {
+		if triangleArea(m.Vertices[t[0]], m.Vertices[t[1]], m.Vertices[t[2]]) < 1e-12 {
 			continue
 		}
 		out = append(out, t)
 	}
-	m.T = out
+	m.Triangles = out
 }
 
 // dropInternal removes pairs of coincident triangles with opposite orientation
 // (internal faces left behind where two solids touch).
 func (m *Mesh) dropInternal() {
 	type key [3]int
-	canon := func(t Tri) key { // rotate so the smallest index comes first (keeps orientation)
+	canonical := func(t Triangle) key { // rotate so the smallest index comes first (keeps orientation)
 		a, b, c := t[0], t[1], t[2]
 		if b < a && b < c {
 			a, b, c = b, c, a
@@ -174,16 +174,16 @@ func (m *Mesh) dropInternal() {
 		return key{a, b, c}
 	}
 	seen := map[key][]int{}
-	for i, t := range m.T {
-		k := canon(t)
+	for i, t := range m.Triangles {
+		k := canonical(t)
 		seen[k] = append(seen[k], i)
 	}
-	dead := make([]bool, len(m.T))
-	for i, t := range m.T {
+	dead := make([]bool, len(m.Triangles))
+	for i, t := range m.Triangles {
 		if dead[i] {
 			continue
 		}
-		k := canon(t)
+		k := canonical(t)
 		for _, j := range seen[key{k[0], k[2], k[1]}] { // same vertices, opposite orientation
 			if j != i && !dead[j] {
 				dead[i], dead[j] = true, true
@@ -191,86 +191,86 @@ func (m *Mesh) dropInternal() {
 			}
 		}
 	}
-	out := m.T[:0]
-	for i, t := range m.T {
+	out := m.Triangles[:0]
+	for i, t := range m.Triangles {
 		if !dead[i] {
 			out = append(out, t)
 		}
 	}
-	m.T = out
+	m.Triangles = out
 }
 
-var debugTJ func(m *Mesh, orig Tri, subs []Tri)
+var debugTJunctions func(m *Mesh, original Triangle, pieces []Triangle)
 
-// fixTJunctions splits triangle edges at vertices that lie on them (within eps).
-func (m *Mesh) fixTJunctions(eps float64) {
+// fixTJunctions splits triangle edges at vertices that lie on them (within epsilon).
+func (m *Mesh) fixTJunctions(epsilon float64) {
 	const cell = 2.0
 	grid := map[cellKey][]int{}
-	for i, p := range m.V {
-		k := keyOf(p, cell)
+	for i, p := range m.Vertices {
+		k := cellKeyOf(p, cell)
 		grid[k] = append(grid[k], i)
 	}
-	type ekey [2]int
-	extras := map[ekey][]int{} // keyed by (min,max); values ordered from min to max
-	done := map[ekey]bool{}
-	for _, t := range m.T {
+	type edgeKey [2]int
+	extras := map[edgeKey][]int{} // keyed by (min,max); values ordered from min to max
+	done := map[edgeKey]bool{}
+	for _, t := range m.Triangles {
 		for k := 0; k < 3; k++ {
 			a, b := t[k], t[(k+1)%3]
 			if a > b {
 				a, b = b, a
 			}
-			ek := ekey{a, b}
-			if done[ek] {
+			edge := edgeKey{a, b}
+			if done[edge] {
 				continue
 			}
-			done[ek] = true
-			pa, pb := m.V[a], m.V[b]
-			lo := V3{math.Min(pa.X, pb.X) - eps, math.Min(pa.Y, pb.Y) - eps, math.Min(pa.Z, pb.Z) - eps}
-			hi := V3{math.Max(pa.X, pb.X) + eps, math.Max(pa.Y, pb.Y) + eps, math.Max(pa.Z, pb.Z) + eps}
-			klo, khi := keyOf(lo, cell), keyOf(hi, cell)
-			d := pb.Sub(pa)
-			dd := d.Dot(d)
-			type cand struct {
+			done[edge] = true
+			pointA, pointB := m.Vertices[a], m.Vertices[b]
+			lo := Vector3{math.Min(pointA.X, pointB.X) - epsilon, math.Min(pointA.Y, pointB.Y) - epsilon, math.Min(pointA.Z, pointB.Z) - epsilon}
+			hi := Vector3{math.Max(pointA.X, pointB.X) + epsilon, math.Max(pointA.Y, pointB.Y) + epsilon, math.Max(pointA.Z, pointB.Z) + epsilon}
+			lowKey, highKey := cellKeyOf(lo, cell), cellKeyOf(hi, cell)
+			edgeVector := pointB.Sub(pointA)
+			edgeLengthSquared := edgeVector.Dot(edgeVector)
+			type candidate struct {
 				v int
 				t float64
 			}
-			var cs []cand
-			for x := klo[0]; x <= khi[0]; x++ {
-				for y := klo[1]; y <= khi[1]; y++ {
-					for z := klo[2]; z <= khi[2]; z++ {
+			var candidates []candidate
+			for x := lowKey[0]; x <= highKey[0]; x++ {
+				for y := lowKey[1]; y <= highKey[1]; y++ {
+					for z := lowKey[2]; z <= highKey[2]; z++ {
 						for _, v := range grid[cellKey{x, y, z}] {
 							if v == a || v == b {
 								continue
 							}
-							p := m.V[v]
-							tt := p.Sub(pa).Dot(d) / dd
-							if tt <= 0 || tt >= 1 {
+							p := m.Vertices[v]
+							fraction := p.Sub(pointA).Dot(edgeVector) / edgeLengthSquared
+							if fraction <= 0 || fraction >= 1 {
 								continue
 							}
-							if p.Sub(pa.Add(d.Mul(tt))).Len() > eps {
+							if p.Sub(pointA.Add(edgeVector.Scale(fraction))).Length() > epsilon {
 								continue
 							}
-							if p.Sub(pa).Len() <= eps || p.Sub(pb).Len() <= eps {
+							if p.Sub(pointA).Length() <= epsilon || p.Sub(pointB).Length() <= epsilon {
 								continue
 							}
-							cs = append(cs, cand{v, tt})
+							candidates = append(candidates, candidate{v, fraction})
 						}
 					}
 				}
 			}
-			if len(cs) == 0 {
+			if len(candidates) == 0 {
 				continue
 			}
-			for i := 1; i < len(cs); i++ { // insertion sort by t
-				for j := i; j > 0 && cs[j].t < cs[j-1].t; j-- {
-					cs[j], cs[j-1] = cs[j-1], cs[j]
+			for i := 1; i < len(candidates); i++ { // insertion sort by t
+				for j := i; j > 0 && candidates[j].t < candidates[j-1].t; j-- {
+					candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
 				}
 			}
-			vs := make([]int, len(cs))
-			for i, c := range cs {
-				vs[i] = c.v
+			vertexIndices := make([]int, len(candidates))
+			for i, c := range candidates {
+				vertexIndices[i] = c.v
 			}
-			extras[ek] = vs
+			extras[edge] = vertexIndices
 		}
 	}
 	if len(extras) == 0 {
@@ -278,38 +278,38 @@ func (m *Mesh) fixTJunctions(eps float64) {
 	}
 	edgeExtras := func(a, b int) []int {
 		if a < b {
-			return extras[ekey{a, b}]
+			return extras[edgeKey{a, b}]
 		}
-		e := extras[ekey{b, a}]
+		e := extras[edgeKey{b, a}]
 		r := make([]int, len(e))
 		for i := range e {
 			r[len(e)-1-i] = e[i]
 		}
 		return r
 	}
-	var out []Tri
-	var sub func(a, b, c int, eab, ebc, eca []int)
-	sub = func(a, b, c int, eab, ebc, eca []int) {
+	var out []Triangle
+	var subdivide func(a, b, c int, extrasAB, extrasBC, extrasCA []int)
+	subdivide = func(a, b, c int, extrasAB, extrasBC, extrasCA []int) {
 		switch {
-		case len(eab) > 0:
-			e := eab[0]
-			sub(a, e, c, nil, nil, eca)
-			sub(e, b, c, eab[1:], ebc, nil)
-		case len(ebc) > 0:
-			sub(b, c, a, ebc, eca, eab)
-		case len(eca) > 0:
-			sub(c, a, b, eca, eab, ebc)
+		case len(extrasAB) > 0:
+			e := extrasAB[0]
+			subdivide(a, e, c, nil, nil, extrasCA)
+			subdivide(e, b, c, extrasAB[1:], extrasBC, nil)
+		case len(extrasBC) > 0:
+			subdivide(b, c, a, extrasBC, extrasCA, extrasAB)
+		case len(extrasCA) > 0:
+			subdivide(c, a, b, extrasCA, extrasAB, extrasBC)
 		default:
-			out = append(out, Tri{a, b, c})
+			out = append(out, Triangle{a, b, c})
 		}
 	}
-	for _, t := range m.T {
-		n0 := len(out)
-		without := func(vs []int, corner int) []int { // a triangle's own corner is never an "extra" on its edges
-			for _, v := range vs {
+	for _, t := range m.Triangles {
+		startLength := len(out)
+		without := func(vertexIndices []int, corner int) []int { // a triangle's own corner is never an "extra" on its edges
+			for _, v := range vertexIndices {
 				if v == corner {
-					r := make([]int, 0, len(vs))
-					for _, w := range vs {
+					r := make([]int, 0, len(vertexIndices))
+					for _, w := range vertexIndices {
 						if w != corner {
 							r = append(r, w)
 						}
@@ -317,77 +317,77 @@ func (m *Mesh) fixTJunctions(eps float64) {
 					return r
 				}
 			}
-			return vs
+			return vertexIndices
 		}
-		sub(t[0], t[1], t[2], without(edgeExtras(t[0], t[1]), t[2]), without(edgeExtras(t[1], t[2]), t[0]), without(edgeExtras(t[2], t[0]), t[1]))
-		if debugTJ != nil {
-			debugTJ(m, t, out[n0:])
+		subdivide(t[0], t[1], t[2], without(edgeExtras(t[0], t[1]), t[2]), without(edgeExtras(t[1], t[2]), t[0]), without(edgeExtras(t[2], t[0]), t[1]))
+		if debugTJunctions != nil {
+			debugTJunctions(m, t, out[startLength:])
 		}
 	}
-	m.T = out
+	m.Triangles = out
 }
 
 // dropFlat removes slivers: triangles whose height over their longest edge is below flatEps.
 // Together with T-junction repair this is exactly right: a flat triangle's neighbours have just
 // been split at its apex, so dropping it closes the surface again.
 func (m *Mesh) dropFlat() {
-	out := m.T[:0]
-	for _, t := range m.T {
-		a, b, c := m.V[t[0]], m.V[t[1]], m.V[t[2]]
-		l := math.Max(b.Sub(a).Len(), math.Max(c.Sub(b).Len(), a.Sub(c).Len()))
-		if l == 0 || b.Sub(a).Cross(c.Sub(a)).Len()/l < flatEps {
+	out := m.Triangles[:0]
+	for _, t := range m.Triangles {
+		a, b, c := m.Vertices[t[0]], m.Vertices[t[1]], m.Vertices[t[2]]
+		longestEdge := math.Max(b.Sub(a).Length(), math.Max(c.Sub(b).Length(), a.Sub(c).Length()))
+		if longestEdge == 0 || b.Sub(a).Cross(c.Sub(a)).Length()/longestEdge < flatEpsilon {
 			continue
 		}
 		out = append(out, t)
 	}
-	m.T = out
+	m.Triangles = out
 }
 
 // Cleanup welds vertices, repairs T-junctions, and removes slivers and internal faces.
 func (m *Mesh) Cleanup() {
-	m.Weld(weldEps)
+	m.Weld(weldEpsilon)
 	m.dropRepeated() // must precede T-junction repair: collapsed triangles would be "split" into garbage
 	for pass := 0; pass < 4; pass++ {
-		n := len(m.T)
-		m.fixTJunctions(tjuncEps)
+		n := len(m.Triangles)
+		m.fixTJunctions(tJunctionEpsilon)
 		m.dropRepeated()
 		m.dropFlat()
 		m.dropInternal()
-		if len(m.T) == n {
+		if len(m.Triangles) == n {
 			break
 		}
 	}
 	// drop vertices no longer referenced
-	used := make([]int, len(m.V))
+	used := make([]int, len(m.Vertices))
 	for i := range used {
 		used[i] = -1
 	}
-	var nv []V3
-	for i, t := range m.T {
+	var newVertices []Vector3
+	for i, t := range m.Triangles {
 		for k := 0; k < 3; k++ {
 			if used[t[k]] < 0 {
-				used[t[k]] = len(nv)
-				nv = append(nv, m.V[t[k]])
+				used[t[k]] = len(newVertices)
+				newVertices = append(newVertices, m.Vertices[t[k]])
 			}
-			m.T[i][k] = used[t[k]]
+			m.Triangles[i][k] = used[t[k]]
 		}
 	}
-	m.V = nv
+	m.Vertices = newVertices
 }
 
 // merge appends other (indices are shifted).
-func (m *Mesh) merge(o *Mesh) {
-	off := len(m.V)
-	m.V = append(m.V, o.V...)
-	for _, t := range o.T {
-		m.T = append(m.T, Tri{t[0] + off, t[1] + off, t[2] + off})
+func (m *Mesh) merge(other *Mesh) {
+	offset := len(m.Vertices)
+	m.Vertices = append(m.Vertices, other.Vertices...)
+	for _, t := range other.Triangles {
+		m.Triangles = append(m.Triangles, Triangle{t[0] + offset, t[1] + offset, t[2] + offset})
 	}
 }
 
 // Transform applies f to every vertex; flips winding when mirror is true.
-func (m *Mesh) transform(f func(V3) V3, mirror bool) {
-	for i, p := range m.V {
-		m.V[i] = f(p)
+func (m *Mesh) transform(transformVertex func(Vector3) Vector3, mirror bool) {
+	for i, p := range m.Vertices {
+		m.Vertices[i] = transformVertex(p)
 	}
 	if mirror {
 		m.flip()

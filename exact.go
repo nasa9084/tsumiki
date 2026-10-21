@@ -24,10 +24,10 @@ const (
 	maxCoord = 500000.0 // |coordinate| limit in lattice units (500 mm); keeps int64 plane math safe
 )
 
-// ipl is the plane a*x + b*y + c*z = d with integer coefficients (lattice units).
-type ipl struct{ a, b, c, d int64 }
+// integerPlane is the plane a*x + b*y + c*z = d with integer coefficients (lattice units).
+type integerPlane struct{ a, b, c, d int64 }
 
-func (p ipl) neg() ipl { return ipl{-p.a, -p.b, -p.c, -p.d} }
+func (p integerPlane) neg() integerPlane { return integerPlane{-p.a, -p.b, -p.c, -p.d} }
 
 func gcd64(a, b int64) int64 {
 	for b != 0 {
@@ -39,29 +39,29 @@ func gcd64(a, b int64) int64 {
 	return a
 }
 
-func normPlane(a, b, c, d int64) ipl {
+func normalizePlane(a, b, c, d int64) integerPlane {
 	g := gcd64(gcd64(a, b), gcd64(c, d))
 	if g > 1 {
 		a, b, c, d = a/g, b/g, c/g, d/g
 	}
-	return ipl{a, b, c, d}
+	return integerPlane{a, b, c, d}
 }
 
-// hvert is a point (x/w, y/w, z/w) with w > 0, plus its correctly rounded float coordinates.
-type hvert struct {
-	x, y, z, w *big.Int
-	fx, fy, fz float64 // lattice units
+// homogeneousVertex is a point (x/w, y/w, z/w) with w > 0, plus its correctly rounded float coordinates.
+type homogeneousVertex struct {
+	x, y, z, w             *big.Int
+	floatX, floatY, floatZ float64 // lattice units
 }
 
-func bi(x int64) *big.Int { return big.NewInt(x) }
+func bigInt(x int64) *big.Int { return big.NewInt(x) }
 
 func ratio(x, w *big.Int) float64 {
 	f, _ := new(big.Rat).SetFrac(x, w).Float64()
 	return f
 }
 
-func latticeVert(x, y, z int64) hvert {
-	return hvert{bi(x), bi(y), bi(z), bi(1), float64(x), float64(y), float64(z)}
+func latticeVertex(x, y, z int64) homogeneousVertex {
+	return homogeneousVertex{bigInt(x), bigInt(y), bigInt(z), bigInt(1), float64(x), float64(y), float64(z)}
 }
 
 func cross3(a, b [3]*big.Int) [3]*big.Int {
@@ -76,66 +76,66 @@ func cross3(a, b [3]*big.Int) [3]*big.Int {
 }
 
 // vertexOf intersects three planes. ok is false when they do not meet in a single point.
-func vertexOf(p1, p2, p3 *ipl) (hvert, bool) {
-	n1 := [3]*big.Int{bi(p1.a), bi(p1.b), bi(p1.c)}
-	n2 := [3]*big.Int{bi(p2.a), bi(p2.b), bi(p2.c)}
-	n3 := [3]*big.Int{bi(p3.a), bi(p3.b), bi(p3.c)}
-	c23, c31, c12 := cross3(n2, n3), cross3(n3, n1), cross3(n1, n2)
+func vertexOf(plane1, plane2, plane3 *integerPlane) (homogeneousVertex, bool) {
+	normal1 := [3]*big.Int{bigInt(plane1.a), bigInt(plane1.b), bigInt(plane1.c)}
+	normal2 := [3]*big.Int{bigInt(plane2.a), bigInt(plane2.b), bigInt(plane2.c)}
+	normal3 := [3]*big.Int{bigInt(plane3.a), bigInt(plane3.b), bigInt(plane3.c)}
+	cross23, cross31, cross12 := cross3(normal2, normal3), cross3(normal3, normal1), cross3(normal1, normal2)
 	t := new(big.Int)
-	w := new(big.Int)
+	determinant := new(big.Int)
 	for i := 0; i < 3; i++ {
-		w.Add(w, t.Mul(n1[i], c23[i]))
+		determinant.Add(determinant, t.Mul(normal1[i], cross23[i]))
 	}
-	if w.Sign() == 0 {
-		return hvert{}, false
+	if determinant.Sign() == 0 {
+		return homogeneousVertex{}, false
 	}
-	d1, d2, d3 := bi(p1.d), bi(p2.d), bi(p3.d)
-	var c [3]*big.Int
+	constant1, constant2, constant3 := bigInt(plane1.d), bigInt(plane2.d), bigInt(plane3.d)
+	var numerators [3]*big.Int
 	for i := 0; i < 3; i++ {
-		c[i] = new(big.Int).Mul(d1, c23[i])
-		c[i].Add(c[i], t.Mul(d2, c31[i]))
-		c[i].Add(c[i], t.Mul(d3, c12[i]))
+		numerators[i] = new(big.Int).Mul(constant1, cross23[i])
+		numerators[i].Add(numerators[i], t.Mul(constant2, cross31[i]))
+		numerators[i].Add(numerators[i], t.Mul(constant3, cross12[i]))
 	}
-	if w.Sign() < 0 {
-		w.Neg(w)
-		for i := range c {
-			c[i].Neg(c[i])
+	if determinant.Sign() < 0 {
+		determinant.Neg(determinant)
+		for i := range numerators {
+			numerators[i].Neg(numerators[i])
 		}
 	}
-	return hvert{c[0], c[1], c[2], w, ratio(c[0], w), ratio(c[1], w), ratio(c[2], w)}, true
+	return homogeneousVertex{numerators[0], numerators[1], numerators[2], determinant, ratio(numerators[0], determinant), ratio(numerators[1], determinant), ratio(numerators[2], determinant)}, true
 }
 
 // side returns the sign of (a*x + b*y + c*z - d) at the vertex: +1 front, -1 back, 0 on the plane.
-func (h *hvert) side(s *ipl) int {
-	a, b, c, d := float64(s.a), float64(s.b), float64(s.c), float64(s.d)
-	v := a*h.fx + b*h.fy + c*h.fz - d
-	bound := (math.Abs(a*h.fx) + math.Abs(b*h.fy) + math.Abs(c*h.fz) + math.Abs(d)) * 1e-13
-	if v > bound {
+func (vertex *homogeneousVertex) side(plane *integerPlane) int {
+	a, b, c, d := float64(plane.a), float64(plane.b), float64(plane.c), float64(plane.d)
+	signedValue := a*vertex.floatX + b*vertex.floatY + c*vertex.floatZ - d
+	errorBound := (math.Abs(a*vertex.floatX) + math.Abs(b*vertex.floatY) + math.Abs(c*vertex.floatZ) + math.Abs(d)) * 1e-13
+	if signedValue > errorBound {
 		return 1
 	}
-	if v < -bound {
+	if signedValue < -errorBound {
 		return -1
 	}
-	t := new(big.Int).Mul(h.x, bi(s.a))
+	t := new(big.Int).Mul(vertex.x, bigInt(plane.a))
 	u := new(big.Int)
-	t.Add(t, u.Mul(h.y, bi(s.b)))
-	t.Add(t, u.Mul(h.z, bi(s.c)))
-	t.Sub(t, u.Mul(h.w, bi(s.d)))
+	t.Add(t, u.Mul(vertex.y, bigInt(plane.b)))
+	t.Add(t, u.Mul(vertex.z, bigInt(plane.c)))
+	t.Sub(t, u.Mul(vertex.w, bigInt(plane.d)))
 	return t.Sign()
 }
 
-// epoly is a convex polygon on plane p. Edge i runs from vertex i to vertex i+1 and lies on
+// exactPolygon is a convex polygon on plane p. Edge i runs from vertex i to vertex i+1 and lies on
 // plane e[i]; vertex i is the intersection of p, e[i-1] and e[i].
-type epoly struct {
-	p ipl
-	e []ipl
-	v []hvert
+type exactPolygon struct {
+	p integerPlane
+	e []integerPlane
+	v []homogeneousVertex
 }
 
 // Solid is a closed polyhedral surface as a soup of exact convex polygons.
-type Solid []*epoly
+type Solid []*exactPolygon
 
-func snap(p V3) ([3]int64, error) {
+func snap(p Vector3) ([3]int64, error) {
 	c := [3]float64{p.X * lattice, p.Y * lattice, p.Z * lattice}
 	var r [3]int64
 	for i, v := range c {
@@ -147,35 +147,35 @@ func snap(p V3) ([3]int64, error) {
 	return r, nil
 }
 
-func newTriPoly(q [3][3]int64) *epoly {
-	sub := func(a, b [3]int64) [3]int64 { return [3]int64{a[0] - b[0], a[1] - b[1], a[2] - b[2]} }
-	e1, e2 := sub(q[1], q[0]), sub(q[2], q[0])
-	n := [3]int64{e1[1]*e2[2] - e1[2]*e2[1], e1[2]*e2[0] - e1[0]*e2[2], e1[0]*e2[1] - e1[1]*e2[0]}
+func newTrianglePolygon(corners [3][3]int64) *exactPolygon {
+	subtract := func(a, b [3]int64) [3]int64 { return [3]int64{a[0] - b[0], a[1] - b[1], a[2] - b[2]} }
+	firstEdge, secondEdge := subtract(corners[1], corners[0]), subtract(corners[2], corners[0])
+	n := [3]int64{firstEdge[1]*secondEdge[2] - firstEdge[2]*secondEdge[1], firstEdge[2]*secondEdge[0] - firstEdge[0]*secondEdge[2], firstEdge[0]*secondEdge[1] - firstEdge[1]*secondEdge[0]}
 	if n == [3]int64{} {
 		return nil
 	}
-	d := n[0]*q[0][0] + n[1]*q[0][1] + n[2]*q[0][2]
-	p := &epoly{p: normPlane(n[0], n[1], n[2], d)}
-	ax := 0
+	d := n[0]*corners[0][0] + n[1]*corners[0][1] + n[2]*corners[0][2]
+	p := &exactPolygon{p: normalizePlane(n[0], n[1], n[2], d)}
+	dominantAxis := 0
 	for k := 1; k < 3; k++ {
-		if abs64(n[k]) > abs64(n[ax]) {
-			ax = k
+		if abs64(n[k]) > abs64(n[dominantAxis]) {
+			dominantAxis = k
 		}
 	}
 	for i := 0; i < 3; i++ {
-		a, b := q[i], q[(i+1)%3]
-		ev := sub(b, a)
-		var ne [3]int64
-		switch ax {
+		a, b := corners[i], corners[(i+1)%3]
+		edgeVector := subtract(b, a)
+		var edgeNormal [3]int64
+		switch dominantAxis {
 		case 2: // e x z
-			ne = [3]int64{ev[1], -ev[0], 0}
+			edgeNormal = [3]int64{edgeVector[1], -edgeVector[0], 0}
 		case 0: // e x x
-			ne = [3]int64{0, ev[2], -ev[1]}
+			edgeNormal = [3]int64{0, edgeVector[2], -edgeVector[1]}
 		default: // e x y
-			ne = [3]int64{-ev[2], 0, ev[0]}
+			edgeNormal = [3]int64{-edgeVector[2], 0, edgeVector[0]}
 		}
-		p.e = append(p.e, normPlane(ne[0], ne[1], ne[2], ne[0]*a[0]+ne[1]*a[1]+ne[2]*a[2]))
-		p.v = append(p.v, latticeVert(a[0], a[1], a[2]))
+		p.e = append(p.e, normalizePlane(edgeNormal[0], edgeNormal[1], edgeNormal[2], edgeNormal[0]*a[0]+edgeNormal[1]*a[1]+edgeNormal[2]*a[2]))
+		p.v = append(p.v, latticeVertex(a[0], a[1], a[2]))
 	}
 	return p
 }
@@ -188,26 +188,26 @@ func abs64(x int64) int64 {
 }
 
 func meshToSolid(m *Mesh) (Solid, error) {
-	pts := make([][3]int64, len(m.V))
-	for i, v := range m.V {
+	pts := make([][3]int64, len(m.Vertices))
+	for i, v := range m.Vertices {
 		p, err := snap(v)
 		if err != nil {
 			return nil, err
 		}
 		pts[i] = p
 	}
-	s := make(Solid, 0, len(m.T))
-	for _, t := range m.T {
-		if p := newTriPoly([3][3]int64{pts[t[0]], pts[t[1]], pts[t[2]]}); p != nil {
+	s := make(Solid, 0, len(m.Triangles))
+	for _, t := range m.Triangles {
+		if p := newTrianglePolygon([3][3]int64{pts[t[0]], pts[t[1]], pts[t[2]]}); p != nil {
 			s = append(s, p)
 		}
 	}
 	return s, nil
 }
 
-func (p *epoly) flipped() *epoly {
+func (p *exactPolygon) flipped() *exactPolygon {
 	n := len(p.e)
-	q := &epoly{p: p.p.neg(), e: make([]ipl, n), v: make([]hvert, n)}
+	q := &exactPolygon{p: p.p.neg(), e: make([]integerPlane, n), v: make([]homogeneousVertex, n)}
 	for j := 0; j < n; j++ {
 		q.e[j] = p.e[n-1-j]
 		q.v[j] = p.v[(n-j)%n]
@@ -215,7 +215,7 @@ func (p *epoly) flipped() *epoly {
 	return q
 }
 
-func sameDir(a, b ipl) bool {
+func sameDir(a, b integerPlane) bool {
 	// planes may be exactly coplanar only when normals are parallel: compare along a nonzero axis
 	switch {
 	case a.a != 0:
@@ -226,38 +226,38 @@ func sameDir(a, b ipl) bool {
 	return (a.c > 0) == (b.c > 0)
 }
 
-// splitPoly sorts p against plane s into coplanar-front, coplanar-back, front and back lists.
-func splitPoly(s *ipl, p *epoly, cf, cb, f, b *[]*epoly) {
+// splitPolygon sorts p against plane s into coplanar-front, coplanar-back, front and back lists.
+func splitPolygon(s *integerPlane, p *exactPolygon, coplanarFront, coplanarBack, front, back *[]*exactPolygon) {
 	n := len(p.v)
 	var buf [16]int8
 	tags := buf[:0]
-	nf, nb := 0, 0
+	frontCount, backCount := 0, 0
 	for i := range p.v {
 		t := p.v[i].side(s)
 		tags = append(tags, int8(t))
 		if t > 0 {
-			nf++
+			frontCount++
 		} else if t < 0 {
-			nb++
+			backCount++
 		}
 	}
 	switch {
-	case nf == 0 && nb == 0:
+	case frontCount == 0 && backCount == 0:
 		if sameDir(p.p, *s) {
-			*cf = append(*cf, p)
+			*coplanarFront = append(*coplanarFront, p)
 		} else {
-			*cb = append(*cb, p)
+			*coplanarBack = append(*coplanarBack, p)
 		}
-	case nb == 0:
-		*f = append(*f, p)
-	case nf == 0:
-		*b = append(*b, p)
+	case backCount == 0:
+		*front = append(*front, p)
+	case frontCount == 0:
+		*back = append(*back, p)
 	default:
 		if q := p.piece(s, tags, n, true); q != nil {
-			*f = append(*f, q)
+			*front = append(*front, q)
 		}
 		if q := p.piece(s, tags, n, false); q != nil {
-			*b = append(*b, q)
+			*back = append(*back, q)
 		}
 	}
 }
@@ -267,7 +267,7 @@ func splitPoly(s *ipl, p *epoly, cf, cb, f, b *[]*epoly) {
 // The part keeps a contiguous run of p's edges (the first and last are truncated by s) plus
 // s itself as the closing edge. The run starts at the edge that crosses (or leaves) s into the
 // wanted side and ends at the edge that crosses back.
-func (p *epoly) piece(s *ipl, tags []int8, n int, wantFront bool) *epoly {
+func (p *exactPolygon) piece(s *integerPlane, tags []int8, n int, wantFront bool) *exactPolygon {
 	enter := func(i int) bool {
 		a, b := tags[i], tags[(i+1)%n]
 		if wantFront {
@@ -292,18 +292,18 @@ func (p *epoly) piece(s *ipl, tags []int8, n int, wantFront bool) *epoly {
 	if start < 0 {
 		return nil
 	}
-	q := &epoly{p: p.p}
-	var v0 hvert
+	q := &exactPolygon{p: p.p}
+	var startVertex homogeneousVertex
 	if tags[start] == 0 {
-		v0 = p.v[start]
+		startVertex = p.v[start]
 	} else {
 		var ok bool
-		if v0, ok = vertexOf(&p.p, s, &p.e[start]); !ok {
+		if startVertex, ok = vertexOf(&p.p, s, &p.e[start]); !ok {
 			return nil
 		}
 	}
 	q.e = append(q.e, p.e[start])
-	q.v = append(q.v, v0)
+	q.v = append(q.v, startVertex)
 	last := -1
 	if exit(start) {
 		last = start
@@ -319,17 +319,17 @@ func (p *epoly) piece(s *ipl, tags []int8, n int, wantFront bool) *epoly {
 	if last < 0 {
 		return nil
 	}
-	var vout hvert
+	var endVertex homogeneousVertex
 	if end := (last + 1) % n; tags[end] == 0 {
-		vout = p.v[end]
+		endVertex = p.v[end]
 	} else {
 		var ok bool
-		if vout, ok = vertexOf(&p.p, &p.e[last], s); !ok {
+		if endVertex, ok = vertexOf(&p.p, &p.e[last], s); !ok {
 			return nil
 		}
 	}
 	q.e = append(q.e, *s)
-	q.v = append(q.v, vout)
+	q.v = append(q.v, endVertex)
 	if len(q.e) < 3 {
 		return nil
 	}
@@ -337,18 +337,18 @@ func (p *epoly) piece(s *ipl, tags []int8, n int, wantFront bool) *epoly {
 }
 
 type node struct {
-	pl          *ipl
+	plane       *integerPlane
 	front, back *node
-	polys       []*epoly
+	polygons    []*exactPolygon
 }
 
 func (n *node) invert() {
-	for i := range n.polys {
-		n.polys[i] = n.polys[i].flipped()
+	for i := range n.polygons {
+		n.polygons[i] = n.polygons[i].flipped()
 	}
-	if n.pl != nil {
-		f := n.pl.neg()
-		n.pl = &f
+	if n.plane != nil {
+		f := n.plane.neg()
+		n.plane = &f
 	}
 	if n.front != nil {
 		n.front.invert()
@@ -359,19 +359,19 @@ func (n *node) invert() {
 	n.front, n.back = n.back, n.front
 }
 
-func (n *node) clipPolys(ps []*epoly) []*epoly {
-	if n.pl == nil {
-		return append([]*epoly(nil), ps...)
+func (n *node) clipPolygons(polygons []*exactPolygon) []*exactPolygon {
+	if n.plane == nil {
+		return append([]*exactPolygon(nil), polygons...)
 	}
-	var f, b []*epoly
-	for _, p := range ps {
-		splitPoly(n.pl, p, &f, &b, &f, &b)
+	var f, b []*exactPolygon
+	for _, p := range polygons {
+		splitPolygon(n.plane, p, &f, &b, &f, &b)
 	}
 	if n.front != nil {
-		f = n.front.clipPolys(f)
+		f = n.front.clipPolygons(f)
 	}
 	if n.back != nil {
-		b = n.back.clipPolys(b)
+		b = n.back.clipPolygons(b)
 	} else {
 		b = nil
 	}
@@ -379,7 +379,7 @@ func (n *node) clipPolys(ps []*epoly) []*epoly {
 }
 
 func (n *node) clipTo(o *node) {
-	n.polys = o.clipPolys(n.polys)
+	n.polygons = o.clipPolygons(n.polygons)
 	if n.front != nil {
 		n.front.clipTo(o)
 	}
@@ -388,28 +388,28 @@ func (n *node) clipTo(o *node) {
 	}
 }
 
-func (n *node) allPolys() []*epoly {
-	ps := append([]*epoly(nil), n.polys...)
+func (n *node) allPolygons() []*exactPolygon {
+	polygons := append([]*exactPolygon(nil), n.polygons...)
 	if n.front != nil {
-		ps = append(ps, n.front.allPolys()...)
+		polygons = append(polygons, n.front.allPolygons()...)
 	}
 	if n.back != nil {
-		ps = append(ps, n.back.allPolys()...)
+		polygons = append(polygons, n.back.allPolygons()...)
 	}
-	return ps
+	return polygons
 }
 
-func (n *node) build(ps []*epoly) {
-	if len(ps) == 0 {
+func (n *node) build(polygons []*exactPolygon) {
+	if len(polygons) == 0 {
 		return
 	}
-	if n.pl == nil {
-		pl := ps[pickSplitter(ps)].p
-		n.pl = &pl
+	if n.plane == nil {
+		plane := polygons[pickSplitter(polygons)].p
+		n.plane = &plane
 	}
-	var f, b []*epoly
-	for _, p := range ps {
-		splitPoly(n.pl, p, &n.polys, &n.polys, &f, &b)
+	var f, b []*exactPolygon
+	for _, p := range polygons {
+		splitPolygon(n.plane, p, &n.polygons, &n.polygons, &f, &b)
 	}
 	if len(f) > 0 {
 		if n.front == nil {
@@ -426,106 +426,108 @@ func (n *node) build(ps []*epoly) {
 }
 
 // pickSplitter samples candidate planes and prefers few splits and a balanced tree.
-func pickSplitter(ps []*epoly) int {
-	if len(ps) <= 4 {
+func pickSplitter(polygons []*exactPolygon) int {
+	if len(polygons) <= 4 {
 		return 0
 	}
-	const cands = 8
-	cstep := max(1, len(ps)/cands)
-	sstep := max(1, len(ps)/48)
+	const candidateCount = 8
+	candidateStep := max(1, len(polygons)/candidateCount)
+	sampleStep := max(1, len(polygons)/48)
 	best, bestScore := 0, 1<<60
-	for c := 0; c < len(ps); c += cstep {
-		pl := &ps[c].p
-		nf, nb, ns := 0, 0, 0
-		for i := 0; i < len(ps); i += sstep {
-			hasF, hasB := false, false
-			for k := range ps[i].v {
-				switch ps[i].v[k].side(pl) {
+	for c := 0; c < len(polygons); c += candidateStep {
+		plane := &polygons[c].p
+		frontCount, backCount, spanningCount := 0, 0, 0
+		for i := 0; i < len(polygons); i += sampleStep {
+			hasFront, hasBack := false, false
+			for k := range polygons[i].v {
+				switch polygons[i].v[k].side(plane) {
 				case 1:
-					hasF = true
+					hasFront = true
 				case -1:
-					hasB = true
+					hasBack = true
 				}
 			}
 			switch {
-			case hasF && hasB:
-				ns++
-			case hasF:
-				nf++
-			case hasB:
-				nb++
+			case hasFront && hasBack:
+				spanningCount++
+			case hasFront:
+				frontCount++
+			case hasBack:
+				backCount++
 			}
 		}
-		d := nf - nb
-		if d < 0 {
-			d = -d
+		imbalance := frontCount - backCount
+		if imbalance < 0 {
+			imbalance = -imbalance
 		}
-		if score := ns*8 + d; score < bestScore {
+		if score := spanningCount*8 + imbalance; score < bestScore {
 			best, bestScore = c, score
 		}
 	}
 	return best
 }
 
-// BoolOp selects a boolean operation.
-type BoolOp int
+// BooleanOperation selects a boolean operation.
+type BooleanOperation int
 
 const (
-	OpJoin BoolOp = iota
-	OpCut
-	OpIntersect
+	OperationJoin BooleanOperation = iota
+	OperationCut
+	OperationIntersect
 )
 
-func (o BoolOp) String() string { return [...]string{"join", "cut", "intersect"}[o] }
+func (o BooleanOperation) String() string { return [...]string{"join", "cut", "intersect"}[o] }
 
 // BooleanSolid combines a and b exactly (neither is modified).
-func BooleanSolid(op BoolOp, a, b Solid) Solid {
+func BooleanSolid(operation BooleanOperation, a, b Solid) Solid {
 	A, B := &node{}, &node{}
-	A.build(append([]*epoly(nil), a...))
-	B.build(append([]*epoly(nil), b...))
-	switch op {
-	case OpJoin:
+	A.build(append([]*exactPolygon(nil), a...))
+	B.build(append([]*exactPolygon(nil), b...))
+	switch operation {
+	case OperationJoin:
 		A.clipTo(B)
 		B.clipTo(A)
 		B.invert()
 		B.clipTo(A)
 		B.invert()
-		A.build(B.allPolys())
-	case OpCut:
+		A.build(B.allPolygons())
+	case OperationCut:
 		A.invert()
 		A.clipTo(B)
 		B.clipTo(A)
 		B.invert()
 		B.clipTo(A)
 		B.invert()
-		A.build(B.allPolys())
+		A.build(B.allPolygons())
 		A.invert()
-	case OpIntersect:
+	case OperationIntersect:
 		A.invert()
 		B.clipTo(A)
 		B.invert()
 		A.clipTo(B)
 		B.clipTo(A)
-		A.build(B.allPolys())
+		A.build(B.allPolygons())
 		A.invert()
 	}
-	return Solid(A.allPolys())
+	return Solid(A.allPolygons())
 }
 
 // translate shifts the solid by whole lattice units, exactly.
-func (s Solid) translate(t [3]int64) Solid {
-	shiftPlane := func(p ipl) ipl { return ipl{p.a, p.b, p.c, p.d + p.a*t[0] + p.b*t[1] + p.c*t[2]} }
+func (s Solid) translate(offset [3]int64) Solid {
+	shiftPlane := func(p integerPlane) integerPlane {
+		return integerPlane{p.a, p.b, p.c, p.d + p.a*offset[0] + p.b*offset[1] + p.c*offset[2]}
+	}
 	out := make(Solid, len(s))
 	for i, p := range s {
-		q := &epoly{p: shiftPlane(p.p), e: make([]ipl, len(p.e)), v: make([]hvert, len(p.v))}
+		q := &exactPolygon{p: shiftPlane(p.p), e: make([]integerPlane, len(p.e)), v: make([]homogeneousVertex, len(p.v))}
 		for k := range p.e {
 			q.e[k] = shiftPlane(p.e[k])
 		}
 		for k, v := range p.v {
-			nx := new(big.Int).Add(v.x, new(big.Int).Mul(bi(t[0]), v.w))
-			ny := new(big.Int).Add(v.y, new(big.Int).Mul(bi(t[1]), v.w))
-			nz := new(big.Int).Add(v.z, new(big.Int).Mul(bi(t[2]), v.w))
-			q.v[k] = hvert{nx, ny, nz, v.w, v.fx + float64(t[0]), v.fy + float64(t[1]), v.fz + float64(t[2])}
+			newX := new(big.Int).Add(v.x, new(big.Int).Mul(bigInt(offset[0]), v.w))
+			newY := new(big.Int).Add(v.y, new(big.Int).Mul(bigInt(offset[1]), v.w))
+			newZ := new(big.Int).Add(v.z, new(big.Int).Mul(bigInt(offset[2]), v.w))
+			q.v[k] = homogeneousVertex{newX, newY, newZ, v.w, v.floatX + float64(offset[0]), v.floatY + float64(offset[1]), v.floatZ + float64(offset[2])}
 		}
 		out[i] = q
 	}
@@ -543,120 +545,120 @@ func (s Solid) translate(t [3]int64) Solid {
 //     triangle is then split at the extra vertices found on its boundary edges.
 func (s Solid) Mesh() *Mesh {
 	m := &Mesh{}
-	var hv []hvert
-	vid := map[[3]float64]int{}
-	get := func(h hvert) int {
-		k := [3]float64{h.fx / lattice, h.fy / lattice, h.fz / lattice}
-		if id, ok := vid[k]; ok {
+	var homogeneousVertices []homogeneousVertex
+	vertexIndexByCoordinate := map[[3]float64]int{}
+	vertexIndexOf := func(h homogeneousVertex) int {
+		k := [3]float64{h.floatX / lattice, h.floatY / lattice, h.floatZ / lattice}
+		if id, ok := vertexIndexByCoordinate[k]; ok {
 			return id
 		}
-		id := len(m.V)
-		vid[k] = id
-		m.V = append(m.V, V3{k[0], k[1], k[2]})
-		hv = append(hv, h)
+		id := len(m.Vertices)
+		vertexIndexByCoordinate[k] = id
+		m.Vertices = append(m.Vertices, Vector3{k[0], k[1], k[2]})
+		homogeneousVertices = append(homogeneousVertices, h)
 		return id
 	}
-	ids := make([][]int, len(s))
-	for pi, p := range s {
+	polygonVertexIndices := make([][]int, len(s))
+	for polygonIndex, p := range s {
 		for _, h := range p.v {
-			id := get(h)
-			if n := len(ids[pi]); n == 0 || ids[pi][n-1] != id {
-				ids[pi] = append(ids[pi], id)
+			id := vertexIndexOf(h)
+			if n := len(polygonVertexIndices[polygonIndex]); n == 0 || polygonVertexIndices[polygonIndex][n-1] != id {
+				polygonVertexIndices[polygonIndex] = append(polygonVertexIndices[polygonIndex], id)
 			}
 		}
-		for n := len(ids[pi]); n > 1 && ids[pi][0] == ids[pi][n-1]; n = len(ids[pi]) {
-			ids[pi] = ids[pi][:n-1]
+		for n := len(polygonVertexIndices[polygonIndex]); n > 1 && polygonVertexIndices[polygonIndex][0] == polygonVertexIndices[polygonIndex][n-1]; n = len(polygonVertexIndices[polygonIndex]) {
+			polygonVertexIndices[polygonIndex] = polygonVertexIndices[polygonIndex][:n-1]
 		}
 	}
 	const cell = 2.0
 	grid := map[cellKey][]int{}
-	for i, p := range m.V {
-		k := keyOf(p, cell)
+	for i, p := range m.Vertices {
+		k := cellKeyOf(p, cell)
 		grid[k] = append(grid[k], i)
 	}
-	const pad = 1e-6
-	extrasOf := func(p *epoly, vs []int, i int) []int {
-		n := len(vs)
+	const padding = 1e-6
+	extraVerticesOf := func(p *exactPolygon, vertexIndices []int, i int) []int {
+		n := len(vertexIndices)
 		if len(p.v) != n { // consecutive duplicates were merged: edge planes no longer line up
 			return nil
 		}
-		a, b := vs[i], vs[(i+1)%n]
-		pa, pb := m.V[a], m.V[b]
-		lo := V3{math.Min(pa.X, pb.X) - pad, math.Min(pa.Y, pb.Y) - pad, math.Min(pa.Z, pb.Z) - pad}
-		hi := V3{math.Max(pa.X, pb.X) + pad, math.Max(pa.Y, pb.Y) + pad, math.Max(pa.Z, pb.Z) + pad}
-		klo, khi := keyOf(lo, cell), keyOf(hi, cell)
-		d := pb.Sub(pa)
-		dd := d.Dot(d)
-		type cand struct {
+		a, b := vertexIndices[i], vertexIndices[(i+1)%n]
+		pointA, pointB := m.Vertices[a], m.Vertices[b]
+		lo := Vector3{math.Min(pointA.X, pointB.X) - padding, math.Min(pointA.Y, pointB.Y) - padding, math.Min(pointA.Z, pointB.Z) - padding}
+		hi := Vector3{math.Max(pointA.X, pointB.X) + padding, math.Max(pointA.Y, pointB.Y) + padding, math.Max(pointA.Z, pointB.Z) + padding}
+		lowKey, highKey := cellKeyOf(lo, cell), cellKeyOf(hi, cell)
+		edgeVector := pointB.Sub(pointA)
+		edgeLengthSquared := edgeVector.Dot(edgeVector)
+		type candidate struct {
 			v int
 			t float64
 		}
-		var cs []cand
-		for x := klo[0]; x <= khi[0]; x++ {
-			for y := klo[1]; y <= khi[1]; y++ {
-				for z := klo[2]; z <= khi[2]; z++ {
+		var candidates []candidate
+		for x := lowKey[0]; x <= highKey[0]; x++ {
+			for y := lowKey[1]; y <= highKey[1]; y++ {
+				for z := lowKey[2]; z <= highKey[2]; z++ {
 					for _, c := range grid[cellKey{x, y, z}] {
 						if c == a || c == b {
 							continue
 						}
-						q := m.V[c]
-						t := q.Sub(pa).Dot(d) / dd
-						if t <= 0 || t >= 1 || q.Sub(pa.Add(d.Mul(t))).Len() > pad {
+						q := m.Vertices[c]
+						t := q.Sub(pointA).Dot(edgeVector) / edgeLengthSquared
+						if t <= 0 || t >= 1 || q.Sub(pointA.Add(edgeVector.Scale(t))).Length() > padding {
 							continue // pre-filter only
 						}
-						if hv[c].side(&p.e[i]) != 0 || hv[c].side(&p.p) != 0 {
+						if homogeneousVertices[c].side(&p.e[i]) != 0 || homogeneousVertices[c].side(&p.p) != 0 {
 							continue // exact test
 						}
-						cs = append(cs, cand{c, t})
+						candidates = append(candidates, candidate{c, t})
 					}
 				}
 			}
 		}
-		for i := 1; i < len(cs); i++ {
-			for j := i; j > 0 && cs[j].t < cs[j-1].t; j-- {
-				cs[j], cs[j-1] = cs[j-1], cs[j]
+		for i := 1; i < len(candidates); i++ {
+			for j := i; j > 0 && candidates[j].t < candidates[j-1].t; j-- {
+				candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
 			}
 		}
-		out := make([]int, len(cs))
-		for i, c := range cs {
+		out := make([]int, len(candidates))
+		for i, c := range candidates {
 			out[i] = c.v
 		}
 		return out
 	}
-	var sub func(a, b, c int, eab, ebc, eca []int)
-	sub = func(a, b, c int, eab, ebc, eca []int) {
+	var subdivide func(a, b, c int, extrasAB, extrasBC, extrasCA []int)
+	subdivide = func(a, b, c int, extrasAB, extrasBC, extrasCA []int) {
 		switch {
-		case len(eab) > 0:
-			e := eab[0]
-			sub(a, e, c, nil, nil, eca)
-			sub(e, b, c, eab[1:], ebc, nil)
-		case len(ebc) > 0:
-			sub(b, c, a, ebc, eca, eab)
-		case len(eca) > 0:
-			sub(c, a, b, eca, eab, ebc)
+		case len(extrasAB) > 0:
+			e := extrasAB[0]
+			subdivide(a, e, c, nil, nil, extrasCA)
+			subdivide(e, b, c, extrasAB[1:], extrasBC, nil)
+		case len(extrasBC) > 0:
+			subdivide(b, c, a, extrasBC, extrasCA, extrasAB)
+		case len(extrasCA) > 0:
+			subdivide(c, a, b, extrasCA, extrasAB, extrasBC)
 		default:
-			m.T = append(m.T, Tri{a, b, c})
+			m.Triangles = append(m.Triangles, Triangle{a, b, c})
 		}
 	}
-	for pi, p := range s {
-		vs := ids[pi]
-		n := len(vs)
+	for polygonIndex, p := range s {
+		vertexIndices := polygonVertexIndices[polygonIndex]
+		n := len(vertexIndices)
 		if n < 3 {
 			continue
 		}
-		ex := make([][]int, n)
-		for i := range ex {
-			ex[i] = extrasOf(p, vs, i)
+		extraVertices := make([][]int, n)
+		for i := range extraVertices {
+			extraVertices[i] = extraVerticesOf(p, vertexIndices, i)
 		}
 		for i := 1; i+1 < n; i++ {
-			var eab, eca []int
+			var extrasAB, extrasCA []int
 			if i == 1 {
-				eab = ex[0]
+				extrasAB = extraVertices[0]
 			}
 			if i+1 == n-1 {
-				eca = ex[n-1]
+				extrasCA = extraVertices[n-1]
 			}
-			sub(vs[0], vs[i], vs[i+1], eab, ex[i], eca)
+			subdivide(vertexIndices[0], vertexIndices[i], vertexIndices[i+1], extrasAB, extraVertices[i], extrasCA)
 		}
 	}
 	return m
