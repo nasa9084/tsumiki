@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	tsumiki "github.com/nasa9084/tsumiki"
+	"github.com/nasa9084/tsumiki"
 )
 
 const (

@@ -1,16 +1,18 @@
-package tsumiki
+package tsumiki_test
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/nasa9084/tsumiki"
 )
 
 func TestNewPartIsEmpty(t *testing.T) {
-	part := NewPart("empty")
+	part := tsumiki.NewPart("empty")
 	if part.Mesh() != nil || part.Err() != nil {
 		t.Errorf("a new part has no body and no error: %v %v", part.Mesh(), part.Err())
 	}
-	if report := part.Report(); report != (Report{}) {
+	if report := part.Report(); report != (tsumiki.Report{}) {
 		t.Errorf("report of an empty part: %+v", report)
 	}
 	if part.Timeline() != "" {
@@ -19,14 +21,14 @@ func TestNewPartIsEmpty(t *testing.T) {
 }
 
 func TestTimelineRecordsEveryFeature(t *testing.T) {
-	part := NewPart("timeline")
-	part.Extrude(NewSketch(XY(0)).Rect(0, 0, 10, 10), 5)
-	part.Extrude(NewSketch(XY(0)).Circle(0, 0, 2), 5, Cut())
-	part.Extrude(NewSketch(XY(5)).Rect(0, 0, 4, 4), 2, Taper(10))
+	part := tsumiki.NewPart("timeline")
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 10, 10), 5)
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 2), 5, tsumiki.Cut())
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(5)).Rect(0, 0, 4, 4), 2, tsumiki.Taper(10))
 	if len(part.Log) != 3 {
 		t.Fatalf("got %d features, want 3", len(part.Log))
 	}
-	if part.Log[0].Operation != OperationJoin || part.Log[1].Operation != OperationCut {
+	if part.Log[0].Operation != tsumiki.OperationJoin || part.Log[1].Operation != tsumiki.OperationCut {
 		t.Errorf("operations %v %v", part.Log[0].Operation, part.Log[1].Operation)
 	}
 	timeline := part.Timeline()
@@ -44,19 +46,19 @@ func TestTimelineRecordsEveryFeature(t *testing.T) {
 }
 
 func TestExtrudeWithoutProfileIsAnError(t *testing.T) {
-	part := NewPart("bad").Extrude(NewSketch(XY(0)), 5)
+	part := tsumiki.NewPart("bad").Extrude(tsumiki.NewSketch(tsumiki.XY(0)), 5)
 	if part.Err() == nil {
 		t.Error("an empty sketch cannot be extruded")
 	}
 	// the first error sticks and later features are skipped
-	part.Extrude(NewSketch(XY(0)).Rect(0, 0, 1, 1), 1)
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 1, 1), 1)
 	if part.Mesh() != nil || len(part.Log) != 0 {
 		t.Error("features after an error must be ignored")
 	}
 }
 
 func TestCutOnEmptyBodyIsAnError(t *testing.T) {
-	part := NewPart("empty").Extrude(NewSketch(XY(0)).Rect(0, 0, 1, 1), 1, Cut())
+	part := tsumiki.NewPart("empty").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 1, 1), 1, tsumiki.Cut())
 	if part.Err() == nil || !strings.Contains(part.Err().Error(), "empty body") {
 		t.Errorf("got %v", part.Err())
 	}
@@ -64,13 +66,14 @@ func TestCutOnEmptyBodyIsAnError(t *testing.T) {
 
 func TestIntersectOption(t *testing.T) {
 	part := box(0, 0, 0, 4, 4, 4).Clone("intersect")
-	part.Extrude(NewSketch(XY(2)).Rect(4, 4, 4, 4), 4, Intersect()) // overlaps one 2x2x2 corner
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(2)).Rect(4, 4, 4, 4), 4, tsumiki.Intersect()) // overlaps one 2x2x2 corner
 	report := mustWatertight(t, "intersect", part)
 	near(t, "volume", report.Volume, 8, 1e-9)
 }
 
 func TestStartOffsetShiftsTheFeature(t *testing.T) {
-	part := NewPart("offset").Extrude(NewSketch(XY(0)).Rect(0, 0, 2, 2), 3, StartOffset(10))
+	part := tsumiki.NewPart("offset").Extrude(
+		tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 2, 2), 3, tsumiki.StartOffset(10))
 	low, high := part.Mesh().Bounds()
 	near(t, "bottom", low.Z, 10, 1e-9)
 	near(t, "top", high.Z, 13, 1e-9)
@@ -78,48 +81,48 @@ func TestStartOffsetShiftsTheFeature(t *testing.T) {
 
 func TestExtrudeOnVerticalPlanes(t *testing.T) {
 	// XZ has its normal along -Y and YZ along +X
-	front := NewPart("xz").Extrude(NewSketch(XZ(0)).Rect(0, 0, 2, 2), 5)
+	front := tsumiki.NewPart("xz").Extrude(tsumiki.NewSketch(tsumiki.XZ(0)).Rect(0, 0, 2, 2), 5)
 	low, high := front.Mesh().Bounds()
 	near(t, "XZ ymin", low.Y, -5, 1e-9)
 	near(t, "XZ ymax", high.Y, 0, 1e-9)
-	side := NewPart("yz").Extrude(NewSketch(YZ(1)).Rect(0, 0, 2, 2), 5)
+	side := tsumiki.NewPart("yz").Extrude(tsumiki.NewSketch(tsumiki.YZ(1)).Rect(0, 0, 2, 2), 5)
 	low, high = side.Mesh().Bounds()
 	near(t, "YZ xmin", low.X, 1, 1e-9)
 	near(t, "YZ xmax", high.X, 6, 1e-9)
 }
 
 func TestExtrudeRejectsCollapsingTaper(t *testing.T) {
-	part := NewPart("collapse").Extrude(NewSketch(XY(0)).Rect(0, 0, 2, 2), 10, Taper(-30))
+	part := tsumiki.NewPart("collapse").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 2, 2), 10, tsumiki.Taper(-30))
 	if part.Err() == nil {
 		t.Error("a shrinking taper that passes through zero size must be rejected")
 	}
 }
 
 func TestRevolveRejectsProfileAcrossTheAxis(t *testing.T) {
-	part := NewPart("axis").Revolve(
-		NewSketch(XY(0)).Polygon(Vector2{-1, 0}, Vector2{1, 0}, Vector2{1, 2}, Vector2{-1, 2}), 360)
+	part := tsumiki.NewPart("axis").Revolve(
+		tsumiki.NewSketch(tsumiki.XY(0)).Polygon(v2(-1, 0), v2(1, 0), v2(1, 2), v2(-1, 2)), 360)
 	if part.Err() == nil {
 		t.Error("a profile on both sides of the axis cannot be revolved")
 	}
 }
 
 func TestRevolveWithoutProfileIsAnError(t *testing.T) {
-	if NewPart("none").Revolve(NewSketch(XY(0)), 360).Err() == nil {
+	if tsumiki.NewPart("none").Revolve(tsumiki.NewSketch(tsumiki.XY(0)), 360).Err() == nil {
 		t.Error("an empty sketch cannot be revolved")
 	}
 }
 
 func TestRevolveCutMakesAGroove(t *testing.T) {
-	part := NewPart("groove").Extrude(NewSketch(XY(0)).Circle(0, 0, 10), 10)
+	part := tsumiki.NewPart("groove").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 10), 10)
 	before := part.Report().Volume
 	// a rectangular notch taken out of the rim, revolved around the Z axis
-	part.Revolve(NewSketch(XZ(0)).Polygon(Vector2{9, 4}, Vector2{11, 4}, Vector2{11, 6}, Vector2{9, 6}), 360, Cut())
+	part.Revolve(tsumiki.NewSketch(tsumiki.XZ(0)).Polygon(v2(9, 4), v2(11, 4), v2(11, 6), v2(9, 6)), 360, tsumiki.Cut())
 	report := mustWatertight(t, "groove", part)
 	near(t, "removed ring", before-report.Volume, 3.14159265*(100-81)*2, 1.5)
 }
 
 func TestCombineRejectsEmptyOther(t *testing.T) {
-	part := box(0, 0, 0, 1, 1, 1).Clone("body").Combine(OperationJoin, NewPart("empty"))
+	part := box(0, 0, 0, 1, 1, 1).Clone("body").Combine(tsumiki.OperationJoin, tsumiki.NewPart("empty"))
 	if part.Err() == nil {
 		t.Error("combining with an empty part must fail")
 	}
@@ -127,7 +130,7 @@ func TestCombineRejectsEmptyOther(t *testing.T) {
 
 func TestCombineUsesTheOtherPartAsIs(t *testing.T) {
 	left, right := box(0, 0, 0, 2, 2, 2), box(1, 0, 0, 3, 2, 2)
-	joined := left.Clone("joined").Combine(OperationJoin, right)
+	joined := left.Clone("joined").Combine(tsumiki.OperationJoin, right)
 	near(t, "union", mustWatertight(t, "union", joined).Volume, 12, 1e-9)
 	near(t, "the other part is untouched", right.Report().Volume, 8, 1e-9)
 }
@@ -135,7 +138,7 @@ func TestCombineUsesTheOtherPartAsIs(t *testing.T) {
 func TestCloneIsIndependent(t *testing.T) {
 	original := box(0, 0, 0, 2, 2, 2)
 	clone := original.Clone("copy")
-	clone.Extrude(NewSketch(XY(0)).Circle(1, 1, 0.5), 2, Cut())
+	clone.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(1, 1, 0.5), 2, tsumiki.Cut())
 	near(t, "original", original.Report().Volume, 8, 1e-9)
 	if clone.Report().Volume >= 8 || clone.Name != "copy" {
 		t.Errorf("clone %q has volume %g", clone.Name, clone.Report().Volume)
@@ -148,14 +151,14 @@ func TestCloneIsIndependent(t *testing.T) {
 func TestTranslateIsExactOnTheLattice(t *testing.T) {
 	part := box(0, 0, 0, 1, 1, 1).Clone("moved").Translate(10.5, -3.25, 0.001)
 	low, high := part.Mesh().Bounds()
-	if low != (Vector3{10.5, -3.25, 0.001}) || high != (Vector3{11.5, -2.25, 1.001}) {
+	if low != (v3(10.5, -3.25, 0.001)) || high != (v3(11.5, -2.25, 1.001)) {
 		t.Errorf("bounds %v %v", low, high)
 	}
 	near(t, "volume", part.Report().Volume, 1, 1e-12)
 }
 
 func TestTranslateOfAnEmptyPartDoesNothing(t *testing.T) {
-	if part := NewPart("empty").Translate(1, 2, 3); part.Mesh() != nil || part.Err() != nil {
+	if part := tsumiki.NewPart("empty").Translate(1, 2, 3); part.Mesh() != nil || part.Err() != nil {
 		t.Error("translating an empty part must be harmless")
 	}
 }
@@ -171,13 +174,13 @@ func TestRotateZQuarterTurn(t *testing.T) {
 }
 
 func TestRotateZOfAnEmptyPartDoesNothing(t *testing.T) {
-	if part := NewPart("empty").RotateZ(45); part.Mesh() != nil || part.Err() != nil {
+	if part := tsumiki.NewPart("empty").RotateZ(45); part.Mesh() != nil || part.Err() != nil {
 		t.Error("rotating an empty part must be harmless")
 	}
 }
 
 func TestBuildingBeyondTheBuildVolumeFails(t *testing.T) {
-	part := NewPart("huge").Extrude(NewSketch(XY(0)).Rect(0, 0, 2000, 2000), 1)
+	part := tsumiki.NewPart("huge").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 2000, 2000), 1)
 	if part.Err() == nil {
 		t.Error("a part larger than the ±500 mm lattice limit must be rejected, not silently clipped")
 	}
@@ -189,7 +192,7 @@ func TestMeshIsCachedUntilTheBodyChanges(t *testing.T) {
 	if part.Mesh() != first {
 		t.Error("Mesh should return the cached mesh while nothing changed")
 	}
-	part.Extrude(NewSketch(XY(0)).Circle(0.5, 0.5, 0.2), 1, Cut())
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0.5, 0.5, 0.2), 1, tsumiki.Cut())
 	if part.Mesh() == first {
 		t.Error("changing the body must invalidate the cache")
 	}

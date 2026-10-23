@@ -1,100 +1,107 @@
 package tsumiki
 
-import (
-	"archive/zip"
-	"bytes"
-	"encoding/binary"
-	"math"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
+import "math/big"
+
+// This file is compiled only for tests. It exposes the internals that the external test package
+// (tsumiki_test) exercises directly.
+
+type (
+	// IntegerPlane exposes integerPlane to the tests.
+	IntegerPlane = integerPlane
+	// ExactPolygon exposes exactPolygon to the tests.
+	ExactPolygon = exactPolygon
+	// HomogeneousVertex exposes homogeneousVertex to the tests.
+	HomogeneousVertex = homogeneousVertex
+	// CellKey exposes cellKey to the tests.
+	CellKey = cellKey
 )
 
-func TestWriteSTLLayout(t *testing.T) {
-	mesh := box(0, 0, 0, 2, 3, 4).Mesh()
-	var buffer bytes.Buffer
-	if err := mesh.WriteSTL(&buffer); err != nil {
-		t.Fatal(err)
-	}
-	data := buffer.Bytes()
-	if !strings.HasPrefix(string(data[:80]), "tsumiki binary STL") {
-		t.Errorf("header = %q", data[:20])
-	}
-	if count := binary.LittleEndian.Uint32(data[80:84]); int(count) != len(mesh.Triangles) {
-		t.Errorf("facet count %d, want %d", count, len(mesh.Triangles))
-	}
-	if want := 84 + 50*len(mesh.Triangles); len(data) != want {
-		t.Errorf("size %d, want %d", len(data), want)
-	}
-}
+var (
+	NormalizePlane      = normalizePlane
+	GCD64               = gcd64
+	Snap                = snap
+	VertexOf            = vertexOf
+	LatticeVertex       = latticeVertex
+	NewTrianglePolygon  = newTrianglePolygon
+	MeshToSolid         = meshToSolid
+	SplitPolygon        = splitPolygon
+	TriangleArea        = triangleArea
+	CellKeyOf           = cellKeyOf
+	ArcSteps            = arcSteps
+	CleanLoop           = cleanLoop
+	PointInLoop         = pointInLoop
+	TriangulateRegion   = triangulateRegion
+	TwiceSignedArea     = twiceSignedArea
+	InTriangleInclusive = inTriangleInclusive
+)
 
-func TestWriteSTLNormalsPointOutward(t *testing.T) {
-	mesh := box(0, 0, 0, 2, 3, 4).Mesh()
-	var buffer bytes.Buffer
-	if err := mesh.WriteSTL(&buffer); err != nil {
-		t.Fatal(err)
-	}
-	data := buffer.Bytes()
-	center := Vector3{1, 1.5, 2}
-	float := func(offset int) float64 {
-		return float64(math.Float32frombits(binary.LittleEndian.Uint32(data[offset:])))
-	}
-	for facet := 0; facet < len(mesh.Triangles); facet++ {
-		start := 84 + facet*50
-		normal := Vector3{float(start), float(start + 4), float(start + 8)}
-		vertex := Vector3{float(start + 12), float(start + 16), float(start + 20)}
-		near(t, "unit normal", normal.Length(), 1, 1e-6)
-		if normal.Dot(vertex.Sub(center)) <= 0 {
-			t.Errorf("facet %d: normal %v points inward", facet, normal)
-		}
-	}
-}
+// NewPlane builds an IntegerPlane a*x + b*y + c*z = d without normalizing it.
+func NewPlane(a, b, c, d int64) IntegerPlane { return integerPlane{a: a, b: b, c: c, d: d} }
 
-func TestWrite3MFPackage(t *testing.T) {
-	var buffer bytes.Buffer
-	if err := box(0, 0, 0, 1, 1, 1).Mesh().Write3MF(&buffer, "cube"); err != nil {
-		t.Fatal(err)
-	}
-	archive, err := zip.NewReader(bytes.NewReader(buffer.Bytes()), int64(buffer.Len()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := map[string]bool{}
-	for _, file := range archive.File {
-		names[file.Name] = true
-	}
-	for _, required := range []string{"[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"} {
-		if !names[required] {
-			t.Errorf("package is missing %s (has %v)", required, names)
-		}
-	}
-}
+// Neg returns the plane with the opposite orientation.
+func (p integerPlane) Neg() IntegerPlane { return p.neg() }
 
-func TestSaveWritesFiles(t *testing.T) {
-	directory := t.TempDir()
-	mesh := box(0, 0, 0, 1, 1, 1).Mesh()
-	stlPath, threeMFPath := filepath.Join(directory, "cube.stl"), filepath.Join(directory, "cube.3mf")
-	if err := mesh.SaveSTL(stlPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := mesh.Save3MF(threeMFPath, "cube"); err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range []string{stlPath, threeMFPath} {
-		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
-			t.Errorf("%s: %v, %v", path, info, err)
-		}
-	}
-}
+// Side reports on which side of the plane the vertex lies (1 front, 0 on, -1 back).
+func (v *homogeneousVertex) Side(plane *IntegerPlane) int { return v.side(plane) }
 
-func TestSaveReportsUnwritablePath(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "no-such-directory", "cube.stl")
-	mesh := box(0, 0, 0, 1, 1, 1).Mesh()
-	if err := mesh.SaveSTL(missing); err == nil {
-		t.Error("SaveSTL into a missing directory should fail")
-	}
-	if err := mesh.Save3MF(missing, "cube"); err == nil {
-		t.Error("Save3MF into a missing directory should fail")
-	}
+// FloatX returns the float approximation of the x coordinate in lattice units.
+func (v homogeneousVertex) FloatX() float64 { return v.floatX }
+
+// FloatY returns the float approximation of the y coordinate in lattice units.
+func (v homogeneousVertex) FloatY() float64 { return v.floatY }
+
+// FloatZ returns the float approximation of the z coordinate in lattice units.
+func (v homogeneousVertex) FloatZ() float64 { return v.floatZ }
+
+// Weight returns the homogeneous denominator.
+func (v homogeneousVertex) Weight() *big.Int { return v.w }
+
+// Plane returns the plane the polygon lies in.
+func (p *exactPolygon) Plane() IntegerPlane { return p.p }
+
+// Edges returns the planes bounding the polygon's edges.
+func (p *exactPolygon) Edges() []IntegerPlane { return p.e }
+
+// Corners returns the polygon's vertices.
+func (p *exactPolygon) Corners() []HomogeneousVertex { return p.v }
+
+// Flipped returns the polygon with reversed orientation.
+func (p *exactPolygon) Flipped() *ExactPolygon { return p.flipped() }
+
+// Translate moves the solid by a whole number of lattice units.
+func (s Solid) Translate(offset [3]int64) Solid { return s.translate(offset) }
+
+// Regions returns the sketch's regions.
+func (s *Sketch) Regions() []Region { return s.regions() }
+
+// Loops returns the sketch's raw loops.
+func (s *Sketch) Loops() []Loop { return s.loops }
+
+// Reversed returns the loop in the opposite direction.
+func (l Loop) Reversed() Loop { return l.reversed() }
+
+// Flip reverses the orientation of every triangle.
+func (m *Mesh) Flip() { m.flip() }
+
+// DropRepeated removes repeated triangles.
+func (m *Mesh) DropRepeated() { m.dropRepeated() }
+
+// DropDegenerate removes zero-area triangles.
+func (m *Mesh) DropDegenerate() { m.dropDegenerate() }
+
+// DropInternal removes internal faces.
+func (m *Mesh) DropInternal() { m.dropInternal() }
+
+// DropFlat removes sliver triangles.
+func (m *Mesh) DropFlat() { m.dropFlat() }
+
+// FixTJunctions splits edges at vertices lying on them.
+func (m *Mesh) FixTJunctions(epsilon float64) { m.fixTJunctions(epsilon) }
+
+// Merge appends other to the mesh.
+func (m *Mesh) Merge(other *Mesh) { m.merge(other) }
+
+// Transform maps every vertex and optionally mirrors the orientation.
+func (m *Mesh) Transform(transformVertex func(Vector3) Vector3, mirror bool) {
+	m.transform(transformVertex, mirror)
 }

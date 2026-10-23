@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	tsumiki "github.com/nasa9084/tsumiki"
+	"github.com/nasa9084/tsumiki"
 )
 
 func TestCellCountsMatchTheReferenceModel(t *testing.T) {

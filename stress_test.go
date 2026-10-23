@@ -1,4 +1,4 @@
-package tsumiki
+package tsumiki_test
 
 import (
 	"fmt"
@@ -7,41 +7,43 @@ import (
 	"os"
 	"strconv"
 	"testing"
+
+	"github.com/nasa9084/tsumiki"
 )
 
 // randSolid builds a random body from boxes and cylinders placed on a coarse grid so that
 // faces are frequently coplanar or touching (the cases that break epsilon-based kernels).
-func randSolid(r *rand.Rand, parts int) *Part {
+func randSolid(r *rand.Rand, parts int) *tsumiki.Part {
 	gridValue := func(lo, hi int) float64 { return float64(lo+r.Intn(hi-lo+1)) * 0.5 }
-	p := NewPart("rand")
+	p := tsumiki.NewPart("rand")
 	for i := range parts {
 		z0 := gridValue(0, 6)
 		height := gridValue(1, 6)
-		var s *Sketch
+		var s *tsumiki.Sketch
 		switch r.Intn(3) {
 		case 0:
 			x0, y0 := gridValue(-8, 4), gridValue(-8, 4)
 			centerX, centerY, width, height := x0+gridValue(1, 6)/2, y0+gridValue(1, 6)/2, gridValue(1, 12), gridValue(1, 12)
-			s = NewSketch(XY(z0)).Rect(centerX, centerY, width, height)
+			s = tsumiki.NewSketch(tsumiki.XY(z0)).Rect(centerX, centerY, width, height)
 			p.Name += fmt.Sprintf(" rect(%g,%g,%g,%g)@z%g", centerX, centerY, width, height, z0)
 		case 1:
 			centerX, centerY, cornerRadius := gridValue(-4, 4), gridValue(-4, 4), gridValue(1, 5)
-			s = NewSketch(XY(z0)).Circle(centerX, centerY, cornerRadius)
+			s = tsumiki.NewSketch(tsumiki.XY(z0)).Circle(centerX, centerY, cornerRadius)
 			p.Name += fmt.Sprintf(" circle(%g,%g,%g)@z%g", centerX, centerY, cornerRadius, z0)
 		default:
 			centerX, centerY := gridValue(-4, 4), gridValue(-4, 4)
 			width, height := gridValue(4, 12), gridValue(4, 12)
 			cornerRadius, rotationDegrees := gridValue(1, 3), float64(r.Intn(4))*15
-			s = NewSketch(XY(z0)).RoundedRect(centerX, centerY, width, height, cornerRadius, rotationDegrees)
+			s = tsumiki.NewSketch(tsumiki.XY(z0)).RoundedRect(centerX, centerY, width, height, cornerRadius, rotationDegrees)
 			p.Name += fmt.Sprintf(" rrect(%g,%g,%g,%g,r%g,rot%g)@z%g",
 				centerX, centerY, width, height, cornerRadius, rotationDegrees, z0)
 		}
-		var opts []FeatureOption
+		var opts []tsumiki.FeatureOption
 		if r.Intn(3) == 0 {
-			opts = append(opts, Taper(float64(r.Intn(41)-10)))
+			opts = append(opts, tsumiki.Taper(float64(r.Intn(41)-10)))
 		}
 		if i > 0 && r.Intn(3) == 0 {
-			opts = append(opts, Cut())
+			opts = append(opts, tsumiki.Cut())
 		}
 		p.Extrude(s, height, opts...)
 		if p.Err() != nil {
@@ -74,11 +76,11 @@ func TestBooleanRandomIdentities(t *testing.T) {
 		}
 		checked++
 		volumeA, volumeB := a.Report().Volume, b.Report().Volume
-		u := a.Clone("u").Combine(OperationJoin, b)
-		i := a.Clone("i").Combine(OperationIntersect, b)
-		c := a.Clone("c").Combine(OperationCut, b)
+		u := a.Clone("u").Combine(tsumiki.OperationJoin, b)
+		i := a.Clone("i").Combine(tsumiki.OperationIntersect, b)
+		c := a.Clone("c").Combine(tsumiki.OperationCut, b)
 		tag := fmt.Sprintf("seed %d (%s | %s)", seed, a.Name, b.Name)
-		for name, p := range map[string]*Part{"union": u, "intersect": i, "cut": c} {
+		for name, p := range map[string]*tsumiki.Part{"union": u, "intersect": i, "difference": c} {
 			if p.Err() != nil || p.Mesh() == nil {
 				continue // empty result (disjoint intersection, or B swallowing A) is a legal outcome
 			}
@@ -114,12 +116,13 @@ func TestBooleanRandomIdentities(t *testing.T) {
 
 func TestBooleanManyHoles(t *testing.T) {
 	// 4x4 grid of cylinder cuts through a plate, each coplanar with both plate faces
-	plate := NewPart("plate").Extrude(NewSketch(XY(0)).Rect(0, 0, 40, 40), 3)
+	plate := tsumiki.NewPart("plate").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 40, 40), 3)
 	want := plate.Report().Volume
-	hole := NewPart("hole").Extrude(NewSketch(XY(0)).Circle(0, 0, 1.2), 3).Report().Volume
+	hole := tsumiki.NewPart("hole").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 1.2), 3).Report().Volume
 	for column := range 4 {
 		for row := range 4 {
-			plate.Extrude(NewSketch(XY(0)).Circle(float64(column)*5-7.5, float64(row)*5-7.5, 1.2), 3, Cut())
+			hole := tsumiki.NewSketch(tsumiki.XY(0)).Circle(float64(column)*5-7.5, float64(row)*5-7.5, 1.2)
+			plate.Extrude(hole, 3, tsumiki.Cut())
 		}
 	}
 	r := mustWatertight(t, "grid of holes", plate)
