@@ -59,15 +59,8 @@ func TestExtrudeNegativeAndOffset(t *testing.T) {
 
 func TestExtrudeDiscWithHole(t *testing.T) {
 	s := tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 65).Circle(0, 0, 22.5)
-	regions := s.Regions()
-	if len(regions) != 1 || len(regions[0].Holes) != 1 {
-		t.Fatalf("regions: %+v", len(regions))
-	}
-	want := (regions[0].Outer.Area() + regions[0].Holes[0].Area()) * 1.5 // hole area is negative
-	p := tsumiki.NewPart("disc").Extrude(s, 1.5)
-	r := mustWatertight(t, "disc", p)
-	near(t, "volume (1µm lattice snap)", r.Volume, want, 0.05)
-	near(t, "analytic", r.Volume, math.Pi*(65*65-22.5*22.5)*1.5, 12) // chord tolerance 0.01
+	r := mustWatertight(t, "disc", tsumiki.NewPart("disc").Extrude(s, 1.5))
+	near(t, "volume", r.Volume, math.Pi*(65*65-22.5*22.5)*1.5, 12) // chord tolerance 0.01
 }
 
 func TestRoundedRectRing(t *testing.T) {

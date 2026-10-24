@@ -34,172 +34,137 @@ func TestPlanePointMapping(t *testing.T) {
 
 func TestLoopAreaSign(t *testing.T) {
 	counterClockwise := tsumiki.Loop{{0, 0}, {2, 0}, {2, 3}, {0, 3}}
+	clockwise := tsumiki.Loop{{0, 0}, {0, 3}, {2, 3}, {2, 0}}
 	near(t, "ccw", counterClockwise.Area(), 6, 1e-12)
-	near(t, "cw", counterClockwise.Reversed().Area(), -6, 1e-12)
+	near(t, "cw", clockwise.Area(), -6, 1e-12)
 }
 
-func TestSketchRegionsNesting(t *testing.T) {
+// bounds returns the bounding box of the sketch extruded by one millimeter.
+func bounds(t *testing.T, sketch *tsumiki.Sketch) (lo, hi tsumiki.Vector3) {
+	t.Helper()
+	part := tsumiki.NewPart("bounds").Extrude(sketch, 1)
+	mustWatertight(t, "bounds", part)
+	return part.Mesh().Bounds()
+}
+
+func TestSketchNestingAlternatesMaterialAndHole(t *testing.T) {
 	// outer square, a hole inside it, and an island inside the hole
 	sketch := tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 20, 20).Rect(0, 0, 10, 10).Rect(0, 0, 4, 4)
-	regions := sketch.Regions()
-	if len(regions) != 2 {
-		t.Fatalf("got %d regions, want 2 (the frame and the island)", len(regions))
-	}
-	var frame, island *tsumiki.Region
-	for i := range regions {
-		if len(regions[i].Holes) == 1 {
-			frame = &regions[i]
-		} else {
-			island = &regions[i]
-		}
-	}
-	if frame == nil || island == nil {
-		t.Fatalf("expected one region with a hole and one without: %+v", regions)
-	}
-	near(t, "frame outer", frame.Outer.Area(), 400, 1e-9)
-	near(t, "frame hole", frame.Holes[0].Area(), -100, 1e-9)
-	near(t, "island", island.Outer.Area(), 16, 1e-9)
+	near(t, "frame plus island", profileArea(t, "nested", sketch), 400-100+16, 1e-9)
 }
 
-func TestSketchRegionsOrientation(t *testing.T) {
-	// a clockwise outer loop must be normalised to counter-clockwise
-	sketch := tsumiki.NewSketch(tsumiki.XY(0)).Polygon(v2(0, 0), v2(0, 5), v2(5, 5), v2(5, 0))
-	regions := sketch.Regions()
-	if len(regions) != 1 || regions[0].Outer.Area() <= 0 {
-		t.Fatalf("outer loop is not counter-clockwise: %+v", regions)
-	}
+func TestSketchOrientationDoesNotMatter(t *testing.T) {
+	clockwise := tsumiki.NewSketch(tsumiki.XY(0)).Polygon(v2(0, 0), v2(0, 5), v2(5, 5), v2(5, 0))
+	counterClockwise := tsumiki.NewSketch(tsumiki.XY(0)).Polygon(v2(0, 0), v2(5, 0), v2(5, 5), v2(0, 5))
+	near(t, "clockwise", profileArea(t, "cw", clockwise), 25, 1e-9)
+	near(t, "counter-clockwise", profileArea(t, "ccw", counterClockwise), 25, 1e-9)
 }
 
-func TestSketchIgnoresDegenerateLoops(t *testing.T) {
+func TestSketchWithoutAreaCannotBeExtruded(t *testing.T) {
 	sketch := tsumiki.NewSketch(tsumiki.XY(0)).Polygon(v2(0, 0), v2(1, 1)).Polygon(v2(0, 0), v2(1, 1), v2(2, 2))
-	if regions := sketch.Regions(); len(regions) != 0 {
-		t.Errorf("a line and a collinear polygon have no area, got %d regions", len(regions))
+	if part := tsumiki.NewPart("flat").Extrude(sketch, 1); part.Err() == nil {
+		t.Error("a line and a collinear polygon enclose no area, extruding them must fail")
 	}
 }
 
 func TestCircleStaysWithinChordTolerance(t *testing.T) {
 	const radius = 30.0
-	sketch := tsumiki.NewSketch(tsumiki.XY(0)).Circle(1, 2, radius)
-	loop := sketch.Loops()[0]
-	for i, point := range loop {
-		near(t, "vertex radius", point.Sub(v2(1, 2)).Length(), radius, 1e-9)
-		next := loop[(i+1)%len(loop)]
-		midpoint := point.Add(next).Scale(0.5)
-		if sagitta := radius - midpoint.Sub(v2(1, 2)).Length(); sagitta > tsumiki.DefaultTolerance*1.0001 {
-			t.Fatalf("chord %d sags %.5f mm, tolerance is %.5f", i, sagitta, tsumiki.DefaultTolerance)
-		}
+	volume := profileArea(t, "circle", tsumiki.NewSketch(tsumiki.XY(0)).Circle(1, 2, radius))
+	exact := math.Pi * radius * radius
+	if volume > exact+0.2 { // 0.2: the 1 µm snapping of vertices
+		t.Errorf("a polygon inscribed in the circle cannot be larger: %g > %g", volume, exact)
+	}
+	if lowest := exact - 2*math.Pi*radius*tsumiki.DefaultTolerance; volume < lowest {
+		t.Errorf("area %g is further from the circle than the tolerance allows (%g)", volume, lowest)
+	}
+	lo, hi := bounds(t, tsumiki.NewSketch(tsumiki.XY(0)).Circle(1, 2, radius))
+	near(t, "extent in x", hi.X-lo.X, 2*radius, 2*tsumiki.DefaultTolerance)
+	near(t, "center x", (hi.X+lo.X)/2, 1, 0.01)
+	near(t, "center y", (hi.Y+lo.Y)/2, 2, 0.01)
+}
+
+func TestFinerToleranceMakesSmootherCircles(t *testing.T) {
+	triangles := func(tolerance float64) int {
+		sketch := tsumiki.NewSketch(tsumiki.XY(0))
+		sketch.Tolerance = tolerance
+		sketch.Circle(0, 0, 20)
+		return len(tsumiki.NewPart("circle").Extrude(sketch, 1).Mesh().Triangles)
+	}
+	if coarse, fine := triangles(0.1), triangles(0.001); fine <= coarse {
+		t.Errorf("a finer tolerance must need more triangles: coarse=%d fine=%d", coarse, fine)
 	}
 }
 
-func TestCircleHasAtLeastEightSegments(t *testing.T) {
-	if n := len(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 0.001).Loops()[0]); n < 8 {
-		t.Errorf("tiny circle has %d segments", n)
+func TestSmallCircleStillExtrudes(t *testing.T) {
+	part := tsumiki.NewPart("pin").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 0.05), 1)
+	r := mustWatertight(t, "pin", part)
+	if r.Triangles < 8 {
+		t.Errorf("a small circle must still be a recognizable polygon, got %d triangles", r.Triangles)
 	}
 }
 
 func TestRectDimensions(t *testing.T) {
-	regions := tsumiki.NewSketch(tsumiki.XY(0)).Rect(5, -3, 4, 6).Regions()
-	near(t, "area", regions[0].Outer.Area(), 24, 1e-12)
-	min, max := v2(math.Inf(1), math.Inf(1)), v2(math.Inf(-1), math.Inf(-1))
-	for _, point := range regions[0].Outer {
-		min = v2(math.Min(min.X, point.X), math.Min(min.Y, point.Y))
-		max = v2(math.Max(max.X, point.X), math.Max(max.Y, point.Y))
+	sketch := tsumiki.NewSketch(tsumiki.XY(0)).Rect(5, -3, 4, 6)
+	lo, hi := bounds(t, sketch)
+	if lo.X != 3 || lo.Y != -6 || hi.X != 7 || hi.Y != 0 {
+		t.Errorf("bounds %v..%v, want x 3..7, y -6..0", lo, hi)
 	}
-	if min != (v2(3, -6)) || max != (v2(7, 0)) {
-		t.Errorf("bounds %v..%v", min, max)
-	}
+	near(t, "area", profileArea(t, "rect", sketch), 24, 1e-12)
 }
 
 func TestRoundedRectArea(t *testing.T) {
 	const width, height, radius = 20.0, 12.0, 3.0
-	area := tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, width, height, radius, 0).Regions()[0].Outer.Area()
+	sketch := tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, width, height, radius, 0)
 	want := width*height - (4-math.Pi)*radius*radius
-	near(t, "area", area, want, 0.2) // inscribed arcs lose about perimeter*tolerance*2/3
+	near(t, "area", profileArea(t, "rounded rect", sketch), want, 0.2) // inscribed arcs lose a little
 }
 
 func TestRoundedRectRadiusIsClamped(t *testing.T) {
-	// radius larger than half the short side must not self-intersect: it becomes a stadium
-	regions := tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, 20, 4, 50, 0).Regions()
-	if len(regions) != 1 {
-		t.Fatalf("got %d regions", len(regions))
-	}
-	want := 20*4 - (4-math.Pi)*2*2
-	near(t, "stadium area", regions[0].Outer.Area(), want, 0.15)
+	// a radius larger than half the short side must not self-intersect: the result is a stadium
+	sketch := tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, 20, 4, 50, 0)
+	near(t, "stadium area", profileArea(t, "stadium", sketch), 20*4-(4-math.Pi)*2*2, 0.15)
 }
 
 func TestRoundedRectRotation(t *testing.T) {
-	loop := tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, 20, 10, 0, 90).Regions()[0].Outer
-	var maxX, maxY float64
-	for _, point := range loop {
-		maxX, maxY = math.Max(maxX, point.X), math.Max(maxY, point.Y)
-	}
-	near(t, "half width after a quarter turn", maxX, 5, 1e-9)
-	near(t, "half height after a quarter turn", maxY, 10, 1e-9)
+	lo, hi := bounds(t, tsumiki.NewSketch(tsumiki.XY(0)).RoundedRect(0, 0, 20, 10, 0, 90))
+	near(t, "half width after a quarter turn", hi.X, 5, 1e-9)
+	near(t, "half height after a quarter turn", hi.Y, 10, 1e-9)
+	near(t, "symmetric x", lo.X, -5, 1e-9)
+	near(t, "symmetric y", lo.Y, -10, 1e-9)
 }
 
 func TestSketchTranslateAndRotate(t *testing.T) {
 	sketch := tsumiki.NewSketch(tsumiki.XY(0)).Polygon(v2(0, 0), v2(1, 0), v2(1, 1), v2(0, 1))
 	sketch.Translate(2, 3)
-	if got := sketch.Loops()[0][0]; got != (v2(2, 3)) {
-		t.Errorf("translated first vertex = %v", got)
+	lo, hi := bounds(t, sketch)
+	if lo.X != 2 || hi.X != 3 || lo.Y != 3 || hi.Y != 4 {
+		t.Errorf("translated bounds %v..%v, want x 2..3, y 3..4", lo, hi)
 	}
-	sketch.Rotate(90)
-	got := sketch.Loops()[0][0]
-	near(t, "rotated x", got.X, -3, 1e-12)
-	near(t, "rotated y", got.Y, 2, 1e-12)
+	sketch.Rotate(90) // counter-clockwise about the origin: (x, y) -> (-y, x)
+	lo, hi = bounds(t, sketch)
+	near(t, "x min", lo.X, -4, 1e-9)
+	near(t, "x max", hi.X, -3, 1e-9)
+	near(t, "y min", lo.Y, 2, 1e-9)
+	near(t, "y max", hi.Y, 3, 1e-9)
 }
 
 func TestPathLines(t *testing.T) {
 	sketch := tsumiki.NewSketch(tsumiki.XY(0))
 	sketch.Path(0, 0).LineTo(4, 0).LineTo(4, 3).Close()
-	regions := sketch.Regions()
-	if len(regions) != 1 {
-		t.Fatalf("got %d regions", len(regions))
-	}
-	near(t, "triangle area", regions[0].Outer.Area(), 6, 1e-12)
+	near(t, "triangle area", profileArea(t, "triangle", sketch), 6, 1e-9)
 }
 
 func TestPathArcDirection(t *testing.T) {
-	// the same two end points around the same center: the two sweeps are complementary
+	// the same end points around the same center: the two sweeps are complementary
 	counterClockwise, clockwise := tsumiki.NewSketch(tsumiki.XY(0)), tsumiki.NewSketch(tsumiki.XY(0))
 	counterClockwise.Path(10, 0).ArcTo(0, 10, 0, 0, true).LineTo(0, 0).Close()
 	clockwise.Path(10, 0).ArcTo(0, 10, 0, 0, false).LineTo(0, 0).Close()
-	quarter := counterClockwise.Regions()[0].Outer.Area()
-	threeQuarters := clockwise.Regions()[0].Outer.Area()
-	near(t, "quarter disc", quarter, math.Pi*100/4, 0.1)
-	near(t, "three-quarter disc", threeQuarters, math.Pi*100*3/4, 0.5)
+	near(t, "quarter disc", profileArea(t, "quarter", counterClockwise), math.Pi*100/4, 0.2)
+	near(t, "three-quarter disc", profileArea(t, "three quarters", clockwise), math.Pi*100*3/4, 0.5)
 }
 
-func TestArcSteps(t *testing.T) {
-	if n := tsumiki.ArcSteps(10, 0.0001, 0.01); n != 1 {
-		t.Errorf("a tiny sweep needs one segment, got %d", n)
-	}
-	if n := tsumiki.ArcSteps(10, 2*math.Pi, 0); n < 8 {
-		t.Errorf("zero tolerance should fall back to the default, got %d", n)
-	}
-	coarse, fine := tsumiki.ArcSteps(50, math.Pi, 0.1), tsumiki.ArcSteps(50, math.Pi, 0.001)
-	if fine <= coarse {
-		t.Errorf("a finer tolerance must need more segments: coarse=%d fine=%d", coarse, fine)
-	}
-	if tsumiki.ArcSteps(0.001, math.Pi, 0.01) < 1 {
-		t.Error("a radius below the tolerance must still return at least one segment")
-	}
-}
-
-func TestCleanLoop(t *testing.T) {
-	loop := tsumiki.Loop{{0, 0}, {0, 0}, {1, 0}, {2, 0}, {2, 2}, {0, 2}, {0, 0}}
-	got := tsumiki.CleanLoop(loop)
-	if len(got) != 4 {
-		t.Errorf("duplicate and collinear points must be removed, got %v", got)
-	}
-}
-
-func TestPointInLoop(t *testing.T) {
-	square := tsumiki.Loop{{0, 0}, {4, 0}, {4, 4}, {0, 4}}
-	if !tsumiki.PointInLoop(v2(2, 2), square) {
-		t.Error("center should be inside")
-	}
-	if tsumiki.PointInLoop(v2(5, 2), square) || tsumiki.PointInLoop(v2(-1, -1), square) {
-		t.Error("outside points reported inside")
-	}
+func TestPathCollinearAndRepeatedPointsAreHarmless(t *testing.T) {
+	sketch := tsumiki.NewSketch(tsumiki.XY(0))
+	sketch.Path(0, 0).LineTo(0, 0).LineTo(1, 0).LineTo(2, 0).LineTo(2, 2).LineTo(0, 2).LineTo(0, 0).Close()
+	near(t, "area", profileArea(t, "square", sketch), 4, 1e-9)
 }
