@@ -1,0 +1,23 @@
+version: "2"
+
+linters:
+  # The default set (errcheck, govet, ineffassign, staticcheck, unused) plus the ones below.
+  enable:
+    - dogsled
+    - errname
+    - exhaustive
+    - exptostd
+    - funlen
+    - goconst
+    - godoclint
+    - godot
+    - govet
+    - lll
+    - modernize
+
+formatters:
+  enable:
+    - gofmt
+
+run:
+  timeout: 5m
