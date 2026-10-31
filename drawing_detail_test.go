@@ -2,6 +2,7 @@ package tsumiki_test
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
 
@@ -131,5 +132,63 @@ func TestDrawingRejectsSectionThatMissesThePart(t *testing.T) {
 	err := pocketedBlock().Mesh().WriteSVG(&buffer, tsumiki.SectionZ(50))
 	if err == nil || !strings.Contains(err.Error(), "section A-A") {
 		t.Errorf("a cutting plane above the part must be reported, got %v", err)
+	}
+}
+
+// hexagon is a regular hexagon with the given distance across flats, flats at top and bottom.
+func hexagon(sketch *tsumiki.Sketch, centerX, centerY, acrossFlats float64) *tsumiki.Sketch {
+	radius := acrossFlats / math.Sqrt(3)
+	var corners []tsumiki.Vector2
+	for k := range 6 {
+		angle := float64(k) * math.Pi / 3
+		corners = append(corners, v2(centerX+radius*math.Cos(angle), centerY+radius*math.Sin(angle)))
+	}
+	return sketch.Polygon(corners...)
+}
+
+func TestDrawingDimensionsHexagonalHolesWithPitch(t *testing.T) {
+	holes := tsumiki.NewSketch(tsumiki.XY(0))
+	for _, x := range []float64{6, 10, 14, 18} {
+		hexagon(holes, x, 10, 3.2)
+	}
+	part := box(0, 0, 0, 24, 20, 2).Extrude(holes, 2, tsumiki.Cut())
+	if document := drawing(t, part); !document.hasText("4× HEX 3.2 A/F, pitch 4") {
+		t.Errorf("four hexagonal holes 4 apart are labeled with size, count and pitch: %q", document.Texts)
+	}
+}
+
+func TestDrawingDimensionsSquareHole(t *testing.T) {
+	part := box(0, 0, 0, 20, 20, 3).Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(10, 10, 5, 5), 3, tsumiki.Cut())
+	if document := drawing(t, part); !document.hasText("□5") {
+		t.Errorf("a square hole is labeled with its side: %q", document.Texts)
+	}
+	if document := drawing(t, box(0, 0, 0, 20, 20, 3)); document.hasTextStartingWith("□") {
+		t.Errorf("the outline of a square block is dimensioned overall, not as a square: %q", document.Texts)
+	}
+}
+
+func TestDrawingDimensionsBlindHoleDepth(t *testing.T) {
+	// a ⌀4 hole 2 deep from the top of a 5 high block, and a ⌀3 hole all the way through
+	part := box(0, 0, 0, 20, 10, 5).
+		Extrude(tsumiki.NewSketch(tsumiki.XY(3)).Circle(5, 5, 2), 2, tsumiki.Cut()).
+		Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(15, 5, 1.5), 5, tsumiki.Cut())
+	document := drawing(t, part)
+	if !document.hasText("⌀4, depth 2") {
+		t.Errorf("a blind hole is labeled with its depth: %q", document.Texts)
+	}
+	if !document.hasText("⌀3") {
+		t.Errorf("a through hole has no depth: %q", document.Texts)
+	}
+}
+
+func TestDrawingDimensionsThroughHoleAboveAnotherFace(t *testing.T) {
+	// a shelf with a ⌀4 hole, 10 above a base: the base seen through the hole is no floor
+	part := box(0, 0, 0, 30, 20, 3).
+		Combine(tsumiki.OperationJoin, box(0, 0, 0, 4, 20, 13)).
+		Combine(tsumiki.OperationJoin, box(0, 0, 10, 30, 20, 13)).
+		Extrude(tsumiki.NewSketch(tsumiki.XY(10)).Circle(20, 10, 2), 3, tsumiki.Cut())
+	document := drawing(t, part)
+	if !document.hasText("⌀4") || document.hasTextStartingWith("⌀4, depth") {
+		t.Errorf("the hole goes through the shelf: %q", document.Texts)
 	}
 }

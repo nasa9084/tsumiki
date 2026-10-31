@@ -24,35 +24,101 @@ func (p *panel) levels() []ordinate {
 	return values
 }
 
-// addDetailDimensions labels the circles and arcs seen square-on (diameters and radii, grouped by
-// size), marks the centers of circles and gives their positions as ordinate dimensions measured
-// from the lower left corner of the view. withLevels also gives the heights of horizontal lines.
+// addDetailDimensions labels the sizes of the circles, arcs and regular polygons seen square-on
+// (grouped by size, with the pitch of repeated features), marks the centers of circles and gives
+// their positions as ordinate dimensions measured from the lower left corner of the view.
+// withLevels also gives the heights of horizontal lines.
 func (p *panel) addDetailDimensions(o drawingOptions, withLevels bool) {
-	arcs := p.faceOnArcs()
 	var across, upward []ordinate
 	if withLevels {
 		upward = p.levels()
 	}
-	groups := map[[2]int64][]faceOnArc{}
-	var order [][2]int64
-	for _, a := range arcs {
+	var features []sizedFeature
+	for _, a := range p.faceOnArcs() {
 		if a.full {
 			across = append(across, ordinate{value: a.center.X, from: a.center.Y + a.radius})
 			upward = append(upward, ordinate{value: a.center.Y, from: a.center.X + a.radius})
 			p.marks = append(p.marks, p.centerLines(a, o)...)
 		}
-		key := [2]int64{int64(math.Round(roundedRadius(a.radius) / sameValueSpacing)), map[bool]int64{true: 1}[a.full]}
-		if groups[key] == nil {
-			order = append(order, key)
-		}
-		groups[key] = append(groups[key], a)
+		features = append(features, a.feature(p))
 	}
-	p.marks = append(p.marks, p.ordinates(across, false, o)...)
-	p.marks = append(p.marks, p.ordinates(upward, true, o)...)
+	for _, polygon := range p.regularPolygons() {
+		features = append(features, polygon.feature(p))
+	}
+	if len(distinct(across)) <= maxOrdinates {
+		p.marks = append(p.marks, p.ordinates(across, false, o)...)
+	}
+	if len(distinct(upward)) <= maxOrdinates {
+		p.marks = append(p.marks, p.ordinates(upward, true, o)...)
+	}
 	space := p.occupancy()
-	for _, key := range order {
-		p.marks = append(p.marks, p.arcLabel(groups[key], space, o)...)
+	for _, group := range groupFeatures(features) {
+		p.marks = append(p.marks, p.featureLabel(group, space, o)...)
 	}
+}
+
+// maxOrdinates is the most positions given along one edge of a view; a pattern of more features
+// is described by its pitch instead.
+const maxOrdinates = 12
+
+// sizedFeature is something whose size gets a label: a circle, an arc or a regular polygon.
+type sizedFeature struct {
+	center   Vector2
+	size     string     // "⌀4", "R3", "HEX 3.2 A/F"
+	anchors  []leaderAt // where a leader may point at it
+	repeated bool       // whether equal features in a group have a pitch worth giving
+}
+
+// leaderAt is a point on a feature and the direction away from the feature there (view coordinates).
+type leaderAt struct {
+	point, outward Vector2
+	inwardToo      bool // the leader may also run into the feature (arcs, whose inside is open)
+}
+
+func (a faceOnArc) feature(p *panel) sizedFeature {
+	if !a.full {
+		outward := unit(a.middle.Sub(a.center))
+		return sizedFeature{center: a.center, size: "R" + length(roundedRadius(a.radius)),
+			anchors: []leaderAt{{point: a.center.Add(outward.Scale(a.radius)), outward: outward, inwardToo: true}}}
+	}
+	f := sizedFeature{center: a.center, size: "⌀" + length(2*roundedRadius(a.radius)) + p.blindDepth(a.center, a.rim),
+		repeated: true}
+	for _, degrees := range []float64{45, 135, -45, -135, 90, -90, 0, 180} {
+		outward := Vector2{math.Cos(Radians(degrees)), math.Sin(Radians(degrees))}
+		f.anchors = append(f.anchors, leaderAt{point: a.center.Add(outward.Scale(a.radius)), outward: outward})
+	}
+	return f
+}
+
+// groupFeatures gathers features of equal size, in the order their sizes first appear.
+func groupFeatures(features []sizedFeature) [][]sizedFeature {
+	index := map[string]int{}
+	var groups [][]sizedFeature
+	for _, f := range features {
+		i, ok := index[f.size]
+		if !ok {
+			i = len(groups)
+			index[f.size] = i
+			groups = append(groups, nil)
+		}
+		groups[i] = append(groups[i], f)
+	}
+	return groups
+}
+
+// pitch is the typical distance from a feature of a group to its nearest neighbor (the median).
+func pitch(group []sizedFeature) float64 {
+	distances := make([]float64, len(group))
+	for i, f := range group {
+		distances[i] = math.Inf(1)
+		for j, other := range group {
+			if i != j {
+				distances[i] = math.Min(distances[i], f.center.Sub(other.center).Length())
+			}
+		}
+	}
+	slices.Sort(distances)
+	return distances[len(distances)/2]
 }
 
 // centerLines draws the two center lines of a circle, reaching a little beyond it.
@@ -65,39 +131,43 @@ func (p *panel) centerLines(a faceOnArc, o drawingOptions) []mark {
 	}
 }
 
-// arcLabel writes the size of a group of equal circles or arcs ("2× ⌀4", "R3") on a leader that
-// points at the first of them, placed where it covers the least of the drawing.
-func (p *panel) arcLabel(group []faceOnArc, space *occupancy, o drawingOptions) []mark {
-	a := group[0]
-	text := "R" + length(roundedRadius(a.radius))
-	var anchors []Vector2 // directions from the center to where the leader starts (paper)
-	if a.full {
-		text = "⌀" + length(2*roundedRadius(a.radius))
-		for _, degrees := range []float64{45, 135, -45, -135, 90, -90, 0, 180} {
-			anchors = append(anchors, Vector2{math.Cos(Radians(degrees)), -math.Sin(Radians(degrees))})
-		}
-	} else {
-		anchors = append(anchors, unit(p.rel(a.middle).Sub(p.rel(a.center))))
-	}
+// featureLabel writes the size of a group of equal features ("2× ⌀4", "R3",
+// "264× HEX 3.2 A/F, pitch 4") on a leader that points at one of them, placed where it covers the
+// least of the drawing. Members near the edge of the view are tried first: in a dense pattern
+// that is where a label can find room.
+func (p *panel) featureLabel(group []sizedFeature, space *occupancy, o drawingOptions) []mark {
+	text := group[0].size
 	if len(group) > 1 {
 		text = fmt.Sprintf("%d× %s", len(group), text)
 	}
+	if len(group) >= 3 && group[0].repeated {
+		text += ", pitch " + length(roundedRadius(pitch(group)))
+	}
+	members := slices.Clone(group)
+	edgeDistance := func(f sizedFeature) float64 {
+		r := p.rel(f.center)
+		size := p.boxSize()
+		return math.Min(math.Min(r.X, size.X-r.X), math.Min(r.Y, size.Y-r.Y))
+	}
+	slices.SortStableFunc(members, func(a, b sizedFeature) int { return cmp.Compare(edgeDistance(a), edgeDistance(b)) })
 	var best []mark
 	bestCost := math.MaxInt
-	for _, anchor := range anchors {
-		at := p.rel(a.center).Add(anchor.Scale(a.radius * o.scale))
-		for _, outward := range []float64{1, -1} {
-			for _, turn := range []float64{0, 25, -25, 50, -50} {
-				for _, reach := range []float64{5, 10} {
-					direction := anchor.Scale(outward).Rotate(Radians(turn))
-					marks := leaderLabel(at, direction, reach, text, o)
-					if cost := space.cost(marks); cost < bestCost {
-						best, bestCost = marks, cost
+	for _, member := range members[:min(len(members), 6)] {
+		for _, anchor := range member.anchors {
+			at := p.rel(anchor.point)
+			outward := Vector2{anchor.outward.X, -anchor.outward.Y} // paper y grows downwards
+			for _, side := range []float64{1, -1} {
+				if side < 0 && !anchor.inwardToo {
+					continue
+				}
+				for _, turn := range []float64{0, 25, -25, 50, -50} {
+					for _, reach := range []float64{5, 10, 16} {
+						marks := leaderLabel(at, outward.Scale(side).Rotate(Radians(turn)), reach, text, o)
+						if cost := space.cost(marks); cost < bestCost {
+							best, bestCost = marks, cost
+						}
 					}
 				}
-			}
-			if a.full {
-				break // a leader into a hole would cross the circle itself
 			}
 		}
 	}
@@ -138,20 +208,22 @@ func (p *panel) occupancy() *occupancy {
 	space := &occupancy{cells: map[[2]int]int{}}
 	for _, lines := range [][]segment2{p.visible, p.hidden} {
 		for _, line := range lines {
-			a, b := p.rel(line[0]), p.rel(line[1])
-			steps := int(b.Sub(a).Length()/(occupancyCell/2)) + 1
-			for k := 0; k <= steps; k++ {
-				space.cells[space.cellOf(a.Add(b.Sub(a).Scale(float64(k)/float64(steps))))] |= 1
-			}
+			space.addLine(p.rel(line[0]), p.rel(line[1]))
 		}
 	}
 	space.add(p.marks)
 	return space
 }
 
-// add records the texts of marks as taken.
+// add records the texts of marks as taken, and their lines as drawn on.
 func (space *occupancy) add(marks []mark) {
 	for _, m := range marks {
+		if m.kind == markLine || m.kind == markCenter || m.kind == markThick {
+			for i := 1; i < len(m.points); i++ {
+				space.addLine(m.points[i-1], m.points[i])
+			}
+			continue
+		}
 		if m.kind != markText {
 			continue
 		}
@@ -273,4 +345,12 @@ func roundedRadius(radius float64) float64 {
 		return rounded
 	}
 	return radius
+}
+
+// addLine records the cells a line runs through as drawn on.
+func (space *occupancy) addLine(a, b Vector2) {
+	steps := int(b.Sub(a).Length()/(occupancyCell/2)) + 1
+	for k := 0; k <= steps; k++ {
+		space.cells[space.cellOf(a.Add(b.Sub(a).Scale(float64(k)/float64(steps))))] |= 1
+	}
 }

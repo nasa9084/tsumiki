@@ -30,6 +30,7 @@ type faceOnArc struct {
 	center, middle Vector2 // middle: a point on the arc, where its label points
 	radius         float64
 	full           bool
+	rim            int // a mesh vertex on the outline nearest to the viewer (-1: unknown)
 }
 
 // circlePiece is a run of drawn edges that lies on a circle in the view.
@@ -38,6 +39,8 @@ type circlePiece struct {
 	center        Vector2
 	radius, sweep float64
 	depth         float64 // how far the piece reaches towards and away from the viewer
+	near          float64 // its depth nearest to the viewer
+	vertex        int     // a mesh vertex of the piece
 	full          bool
 }
 
@@ -62,7 +65,8 @@ func (p *panel) faceOnArcs() []faceOnArc {
 	for _, c := range clusters {
 		c.refine()
 		if c.full || c.coverage >= Radians(minCircleCoverage) {
-			result = append(result, faceOnArc{center: c.center, middle: c.middle, radius: c.radius, full: c.full})
+			result = append(result, faceOnArc{center: c.center, middle: c.middle, radius: c.radius, full: c.full,
+				rim: c.rim})
 		}
 	}
 	return result
@@ -93,7 +97,7 @@ func (p *panel) circlePieces() []circlePiece {
 				_, depth := p.camera.project(corner)
 				low, high = math.Min(low, depth), math.Max(high, depth)
 			}
-			run.piece.depth = high - low
+			run.piece.depth, run.piece.near, run.piece.vertex = high-low, low, chain[run.indices[0]]
 			// A circle seen square-on keeps its depth, give or take an outline that zigzags between
 			// two faceted surfaces; a curve that runs away from the viewer only looks like an arc.
 			if run.piece.depth <= 0.05+0.05*run.piece.radius && p.mostlyVisible(corners) {
@@ -261,6 +265,8 @@ type circleCluster struct {
 	radius         float64
 	coverage       float64 // the angle the pieces cover, in radians
 	full           bool
+	near           float64 // depth of the nearest piece that lies on the circle
+	rim            int     // a vertex of that piece
 }
 
 // joinable returns the cluster whose circle is roughly the piece's: short pieces give rough
@@ -289,9 +295,13 @@ func (c *circleCluster) refine() {
 		return
 	}
 	c.fit(kept)
+	c.near, c.rim = math.Inf(1), -1
 	var seen [coverageBins]bool
 	for _, piece := range kept {
 		c.full = c.full || piece.full
+		if piece.near < c.near {
+			c.near, c.rim = piece.near, piece.vertex
+		}
 		for i := 1; i < len(piece.points); i++ {
 			markDirections(&seen, piece.points[i-1].Sub(c.center), piece.points[i].Sub(c.center))
 		}

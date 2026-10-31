@@ -11,7 +11,8 @@ type panel struct {
 	camera          camera
 	set             *edgeSet
 	buffer          *depthBuffer
-	drawnEdges      []int // indices into set.edges of the edges drawn in this view
+	drawnEdges      []int         // indices into set.edges of the edges drawn in this view
+	neighbors       map[int][]int // mesh vertex adjacency, built when first needed
 	visible, hidden []segment2
 	hatch           [][]Vector2 // closed loops of cut faces (section views)
 	low, high       Vector2

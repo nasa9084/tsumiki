@@ -179,6 +179,21 @@ func (b *depthBuffer) hidden(s Vector2, depth float64) bool {
 	return false
 }
 
+// nearest returns the depth of the surface nearest to the viewer at s, if any.
+func (b *depthBuffer) nearest(s Vector2) (float64, bool) {
+	if b.cells == nil {
+		return 0, false
+	}
+	column, row := b.cellOf(s)
+	best, found := math.Inf(1), false
+	for _, index := range b.cells[row*b.columns+column] {
+		if depth, ok := b.triangles[index].depthAt(s); ok && depth < best {
+			best, found = depth, true
+		}
+	}
+	return best, found
+}
+
 // depthAt returns the triangle's depth at s when s lies inside it or on its border.
 func (t *projectedTriangle) depthAt(s Vector2) (float64, bool) {
 	var weights [3]float64

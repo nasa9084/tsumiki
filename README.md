@@ -40,8 +40,10 @@ Dimensions (all in millimeters):
 
 - overall width, depth and height;
 - diameters of circles and radii of arcs seen square-on, grouped by size (`2× ⌀4`, `4× R5`), with center lines;
+- regular polygons such as hexagonal holes, across flats (`HEX 3.2 A/F`, `□5`);
+- the depth of blind holes (`⌀4, depth 2`) and the pitch of repeated holes (`274× HEX 3.2 A/F, pitch 4`);
 - positions of circle centers and heights of horizontal edges, as ordinate dimensions measured from the lower
-  left corner of each view.
+  left corner of each view (a pattern with more than 12 positions along an edge is described by its pitch).
 
 Section views (`SectionX`, `SectionY`, `SectionZ`) remove the part in front of the cutting plane, hatch the cut
 faces and mark the plane, lettered A, B, …, on the top view (or, for `SectionZ`, the front view).
