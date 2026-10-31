@@ -396,7 +396,12 @@ func main() {
 		if err := mesh.SaveSTL(dir + "/prestera90_guard.stl"); err != nil {
 			fmt.Println(err)
 		}
-		if err := mesh.SaveSVG(dir+"/prestera90_guard.svg", tsumiki.DrawingTitle("Prestera90 guard")); err != nil {
+		drawing := []tsumiki.DrawingOption{
+			tsumiki.DrawingTitle("Prestera90 guard"),
+			tsumiki.SectionY(0),                       // through the zip-tie bump, the skirt, the slit and the fillet
+			tsumiki.SectionX(cornerArcCenterDistance), // across the skirt and both corner arcs
+		}
+		if err := mesh.SaveSVG(dir+"/prestera90_guard.svg", drawing...); err != nil {
 			fmt.Println(err)
 		}
 		fmt.Println("saved to", dir)

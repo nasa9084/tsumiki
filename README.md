@@ -23,21 +23,38 @@ fmt.Print(p.Timeline())
 ## Drawings
 
 `Mesh.WriteSVG` / `Mesh.SaveSVG` draw the part so you can see what the code builds without opening a slicer:
-front, top and right views in third-angle projection, an isometric view, and the overall dimensions in
-millimeters. Edges where faces meet at more than 30° and the outlines of curved surfaces are drawn; edges hidden
-behind the part are dashed in the three orthographic views.
+front, top and right views in third-angle projection, an isometric view and any section views you ask for.
+Edges where faces meet at more than 30° and the outlines of curved surfaces are drawn; edges hidden behind the
+part are dashed in the orthographic views.
 
 ```go
 p.Mesh().SaveSVG("bracket.svg",
 	tsumiki.DrawingTitle("Bracket"),
-	tsumiki.DrawingScale(2),           // paper mm per model mm (2:1)
-	tsumiki.WithoutHiddenLines(),      // optional
-	tsumiki.FeatureAngle(15),          // also draw edges between faces meeting at 15° or more
+	tsumiki.DrawingScale(2), // paper mm per model mm (2:1)
+	tsumiki.SectionY(0),     // section A-A through y = 0, seen from the front
+	tsumiki.SectionZ(2),     // section B-B through z = 2, seen from above
 )
 ```
 
-The SVG is sized in millimeters, so it prints at the chosen scale. Hidden-line removal samples each edge, so
-features much narrower than about 1/2000 of the view's diagonal may hide a line without being noticed.
+Dimensions (all in millimeters):
+
+- overall width, depth and height;
+- diameters of circles and radii of arcs seen square-on, grouped by size (`2× ⌀4`, `4× R5`), with center lines;
+- positions of circle centers and heights of horizontal edges, as ordinate dimensions measured from the lower
+  left corner of each view.
+
+Section views (`SectionX`, `SectionY`, `SectionZ`) remove the part in front of the cutting plane, hatch the cut
+faces and mark the plane, lettered A, B, …, on the top view (or, for `SectionZ`, the front view).
+
+Other options: `WithoutHiddenLines`, `WithoutDimensions`, `WithoutDetailDimensions`, `FeatureAngle`.
+
+The SVG is sized in millimeters, so it prints at the chosen scale. A few things to keep in mind:
+
+- Hidden-line removal samples each edge, so features much narrower than about 1/2000 of the view's diagonal
+  may hide a line without being noticed.
+- Circles are recognized from the facets of the mesh, so sizes are good to the chord tolerance of the sketch
+  (0.01 mm by default); a size within that of a multiple of 0.05 mm is shown rounded to it. Curves faceted more
+  coarsely than the default tolerance (for example polygons built by hand) are not dimensioned.
 
 ## Booleans
 
