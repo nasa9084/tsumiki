@@ -396,6 +396,9 @@ func main() {
 		if err := mesh.SaveSTL(dir + "/prestera90_guard.stl"); err != nil {
 			fmt.Println(err)
 		}
+		if err := mesh.SaveSVG(dir+"/prestera90_guard.svg", tsumiki.DrawingTitle("Prestera90 guard")); err != nil {
+			fmt.Println(err)
+		}
 		fmt.Println("saved to", dir)
 	}
 }

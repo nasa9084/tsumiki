@@ -9,6 +9,7 @@ p := tsumiki.NewPart("plate")
 p.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 65), 1.5)
 p.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 22.5), 1.5, tsumiki.Cut())
 p.Mesh().Save3MF("plate.3mf", "plate")
+p.Mesh().SaveSVG("plate.svg", tsumiki.DrawingTitle("plate")) // a drawing to check the shape at a glance
 fmt.Print(p.Timeline())
 ```
 
@@ -17,6 +18,26 @@ fmt.Print(p.Timeline())
 - 2D sketches: polygons, circles, rounded rectangles, line/arc paths (nesting is resolved even-odd, so inner loops become holes)
 - Extrude (with taper) and revolve; join, cut and intersect
 - 3MF and binary STL export; watertightness and volume checks
+- SVG drawings (see below)
+
+## Drawings
+
+`Mesh.WriteSVG` / `Mesh.SaveSVG` draw the part so you can see what the code builds without opening a slicer:
+front, top and right views in third-angle projection, an isometric view, and the overall dimensions in
+millimeters. Edges where faces meet at more than 30° and the outlines of curved surfaces are drawn; edges hidden
+behind the part are dashed in the three orthographic views.
+
+```go
+p.Mesh().SaveSVG("bracket.svg",
+	tsumiki.DrawingTitle("Bracket"),
+	tsumiki.DrawingScale(2),           // paper mm per model mm (2:1)
+	tsumiki.WithoutHiddenLines(),      // optional
+	tsumiki.FeatureAngle(15),          // also draw edges between faces meeting at 15° or more
+)
+```
+
+The SVG is sized in millimeters, so it prints at the chosen scale. Hidden-line removal samples each edge, so
+features much narrower than about 1/2000 of the view's diagonal may hide a line without being noticed.
 
 ## Booleans
 
@@ -32,7 +53,7 @@ Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One bool
 `cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.
 
 ```sh
-go run ./cmd/guard ./out   # writes a 3MF and an STL to ./out
+go run ./cmd/guard ./out   # writes a 3MF, an STL and an SVG drawing to ./out
 ```
 
 ## Development
