@@ -9,6 +9,7 @@ p := tsumiki.NewPart("plate")
 p.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 65), 1.5)
 p.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, 22.5), 1.5, tsumiki.Cut())
 p.Mesh().Save3MF("plate.3mf", "plate")
+p.Mesh().SaveSVG("plate.svg", tsumiki.DrawingTitle("plate")) // a drawing to check the shape at a glance
 fmt.Print(p.Timeline())
 ```
 
@@ -17,6 +18,45 @@ fmt.Print(p.Timeline())
 - 2D sketches: polygons, circles, rounded rectangles, line/arc paths (nesting is resolved even-odd, so inner loops become holes)
 - Extrude (with taper) and revolve; join, cut and intersect
 - 3MF and binary STL export; watertightness and volume checks
+- SVG drawings (see below)
+
+## Drawings
+
+`Mesh.WriteSVG` / `Mesh.SaveSVG` draw the part so you can see what the code builds without opening a slicer:
+front, top and right views in third-angle projection, an isometric view and any section views you ask for.
+Edges where faces meet at more than 30° and the outlines of curved surfaces are drawn; edges hidden behind the
+part are dashed in the orthographic views.
+
+```go
+p.Mesh().SaveSVG("bracket.svg",
+	tsumiki.DrawingTitle("Bracket"),
+	tsumiki.DrawingScale(2), // paper mm per model mm (2:1)
+	tsumiki.SectionY(0),     // section A-A through y = 0, seen from the front
+	tsumiki.SectionZ(2),     // section B-B through z = 2, seen from above
+)
+```
+
+Dimensions (all in millimeters):
+
+- overall width, depth and height;
+- diameters of circles and radii of arcs seen square-on, grouped by size (`2× ⌀4`, `4× R5`), with center lines;
+- regular polygons such as hexagonal holes, across flats (`HEX 3.2 A/F`, `□5`);
+- the depth of blind holes (`⌀4, depth 2`) and the pitch of repeated holes (`274× HEX 3.2 A/F, pitch 4`);
+- positions of circle centers and heights of horizontal edges, as ordinate dimensions measured from the lower
+  left corner of each view (a pattern with more than 12 positions along an edge is described by its pitch).
+
+Section views (`SectionX`, `SectionY`, `SectionZ`) remove the part in front of the cutting plane, hatch the cut
+faces and mark the plane, lettered A, B, …, on the top view (or, for `SectionZ`, the front view).
+
+Other options: `WithoutHiddenLines`, `WithoutDimensions`, `WithoutDetailDimensions`, `FeatureAngle`.
+
+The SVG is sized in millimeters, so it prints at the chosen scale. A few things to keep in mind:
+
+- Hidden-line removal samples each edge, so features much narrower than about 1/2000 of the view's diagonal
+  may hide a line without being noticed.
+- Circles are recognized from the facets of the mesh, so sizes are good to the chord tolerance of the sketch
+  (0.01 mm by default); a size within that of a multiple of 0.05 mm is shown rounded to it. Curves faceted more
+  coarsely than the default tolerance (for example polygons built by hand) are not dimensioned.
 
 ## Booleans
 
@@ -32,7 +72,7 @@ Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One bool
 `cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.
 
 ```sh
-go run ./cmd/guard ./out   # writes a 3MF and an STL to ./out
+go run ./cmd/guard ./out   # writes a 3MF, an STL and an SVG drawing to ./out
 ```
 
 ## Development
