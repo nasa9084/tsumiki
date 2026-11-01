@@ -10,11 +10,11 @@ import (
 
 func TestCellCountsMatchTheReferenceModel(t *testing.T) {
 	allCells, bandCells := cells()
-	if len(allCells) != 364 {
-		t.Errorf("got %d hex cells, the reference model has 364", len(allCells))
+	if len(allCells) != 162 {
+		t.Errorf("got %d hex cells, the reference model has 162", len(allCells))
 	}
-	if len(bandCells) != 100 {
-		t.Errorf("got %d recess cells, the reference model has 100", len(bandCells))
+	if len(bandCells) != 55 {
+		t.Errorf("got %d recess cells, the reference model has 55", len(bandCells))
 	}
 	// every recess cell is one of the through-hole cells
 	known := map[point]bool{}
@@ -124,9 +124,9 @@ func TestBuildMatchesTheReferenceModel(t *testing.T) {
 	if !report.Watertight() {
 		t.Errorf("the guard must be watertight: %+v", report)
 	}
-	// Fusion reports 9979.6 mm³; tessellation and 1 µm snapping account for the small gap
-	if math.Abs(report.Volume-9979.6) > 50 {
-		t.Errorf("volume %.1f mm³, the reference is 9979.6", report.Volume)
+	// 9239.9 mm³ is the volume of the current model (5.2 mm across flats); the original 3.2 mm design measured 9979.6 in Fusion
+	if math.Abs(report.Volume-9239.9) > 50 {
+		t.Errorf("volume %.1f mm³, the reference is 9239.9", report.Volume)
 	}
 	lo, hi := part.Mesh().Bounds()
 	for name, pair := range map[string][2]float64{

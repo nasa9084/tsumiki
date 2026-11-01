@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	hexAcrossFlats          = 3.2
-	hexPitch                = 4.0
+	hexAcrossFlats          = 5.2
+	hexPitch                = 6.0
 	frame                   = 2.5
 	splitX                  = 0.7
 	plateRadius             = 65.0
@@ -206,7 +206,7 @@ func build(out io.Writer) (*tsumiki.Part, error) {
 	stepStart := time.Now()
 	var c cellSets
 	c.all, c.band = cells()
-	_, _ = fmt.Fprintf(out, "hex cells: %d (spec 364), recess cells: %d (spec 100)\n", len(c.all), len(c.band))
+	_, _ = fmt.Fprintf(out, "hex cells: %d (spec 162), recess cells: %d (spec 55)\n", len(c.all), len(c.band))
 
 	part := tsumiki.NewPart("prestera90-guard")
 	for _, s := range stages {
@@ -390,7 +390,7 @@ func main() {
 	report := part.Report()
 	fmt.Printf("\nbbox  x %.3f..%.3f (0.7..65)  y %.3f..%.3f (±64.89)  z %.3f..%.3f (-12..1.5)\n",
 		lo.X, hi.X, lo.Y, hi.Y, lo.Z, hi.Z)
-	fmt.Printf("volume %.2f (spec ≈9979.6)   watertight=%v  %+v\n", report.Volume, report.Watertight(), report)
+	fmt.Printf("volume %.2f (reference ≈9239.9, 3.2 mm holes were 9979.6)   watertight=%v  %+v\n", report.Volume, report.Watertight(), report)
 	mismatchCount := checkProbes(os.Stdout, mesh)
 	fmt.Printf("probe mismatches: %d / %d\n", mismatchCount, len(referenceProbes))
 

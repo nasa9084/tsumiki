@@ -91,7 +91,7 @@ Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One bool
 
 ## Example
 
-`cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.
+`cmd/guard` rebuilds a half-split plate-with-skirt plant guard (162 hex through-holes and 55 recesses) in 13 steps.
 
 ```sh
 go run ./cmd/guard -models ./out   # writes a 3MF and an STL to ./out
