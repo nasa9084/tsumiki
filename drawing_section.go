@@ -33,36 +33,14 @@ func withComponent(v Vector3, axis int, value float64) Vector3 {
 	return Vector3{c[0], c[1], c[2]}
 }
 
-// makeSections builds the section views and marks their cutting planes on the top view (cuts
-// along X and Y) or the front view (cuts along Z).
-func makeSections(m *Mesh, o drawingOptions, top, front *panel) ([]*panel, error) {
-	var panels []*panel
-	for i, spec := range o.sections {
-		letter := string(rune('A' + i%26))
-		if i >= 26 {
-			letter += fmt.Sprint(i / 26)
-		}
-		p, err := sectionPanel(m, spec, letter, o)
-		if err != nil {
-			return nil, err
-		}
-		panels = append(panels, p)
-		parent := top
-		if spec.axis == 2 {
-			parent = front
-		}
-		parent.marks = append(parent.marks, cuttingPlaneMarks(parent, spec, letter, o)...)
-	}
-	return panels, nil
-}
-
 func sectionPanel(m *Mesh, spec sectionSpec, letter string, o drawingOptions) (*panel, error) {
 	c := spec.camera()
 	clipped, cutFaces, err := clipMesh(m, spec.axis, spec.offset, c)
 	if err != nil {
 		return nil, fmt.Errorf("tsumiki: section %s-%s: %w", letter, letter, err)
 	}
-	p := newPanel(newEdgeSet(clipped), c, fmt.Sprintf("SECTION %s-%s", letter, letter), o, false)
+	label := viewLabel(fmt.Sprintf("SECTION %s-%s", letter, letter), fmt.Sprintf("断面 %s-%s", letter, letter), o)
+	p := newPanel(newEdgeSet(clipped), c, label, o, false)
 	for _, region := range cutFaces {
 		p.hatch = append(p.hatch, region.Outer)
 		for _, hole := range region.Holes {
@@ -238,7 +216,7 @@ func cuttingPlaneMarks(parent *panel, spec sectionSpec, letter string, o drawing
 	for _, at := range []Vector2{start, end} {
 		tip := at.Add(sight.Scale(arrowLength))
 		marks = append(marks, lineMark(at, tip), arrowMark(tip, sight),
-			textMark(tip.Add(sight.Scale(o.textSize*0.9)).Add(Vector2{0, o.textSize * 0.35}), letter, "middle", false,
+			textMark(tip.Add(sight.Scale(o.textSize*0.9)).Add(Vector2{0, o.textSize * 0.35}), letter, anchorMiddle, false,
 				o.textSize))
 	}
 	return marks

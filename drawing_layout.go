@@ -16,7 +16,7 @@ type panelMargins struct{ left, top, right, bottom float64 }
 // layOut arranges the views in third-angle projection: the top view above the front view and the
 // right view to the right of it, so that each pair shares an axis. The isometric view takes the
 // remaining corner, and section views follow in a row below.
-func layOut(grid [2][2]*panel, sections []*panel, o drawingOptions) *sheet {
+func layOut(grid [2][2]*panel, sections []*panel, o drawingOptions, sectionsBeside bool) *sheet {
 	var columnLeft, columnWidth, columnRight, rowTop, rowHeight, rowBottom [2]float64
 	for row := range 2 {
 		for column := range 2 {
@@ -50,10 +50,23 @@ func layOut(grid [2][2]*panel, sections []*panel, o drawingOptions) *sheet {
 			s.panels = append(s.panels, p)
 		}
 	}
-	stripWidth, stripHeight := layOutStrip(sections, y, o)
 	s.panels = append(s.panels, sections...)
+	noteSpace := o.textSize * 5
+	if o.bilingual { // a JIS sheet has a title block instead
+		noteSpace = 0
+	}
+	if sectionsBeside {
+		columnWidth, columnHeight := layOutColumn(sections, x, o)
+		s.width = x + columnWidth + sheetMargin
+		s.height = math.Max(y-o.viewGap, sheetMargin+columnHeight) + noteSpace + sheetMargin
+		return s
+	}
+	stripWidth, stripHeight := layOutStrip(sections, y, o)
 	s.width = math.Max(x-o.viewGap, stripWidth) + sheetMargin
-	s.height = y + stripHeight + o.textSize*5 + sheetMargin
+	s.height = y + stripHeight + noteSpace + sheetMargin
+	if len(sections) == 0 {
+		s.height = y - o.viewGap + noteSpace + sheetMargin
+	}
 	return s
 }
 
@@ -76,4 +89,21 @@ func layOutStrip(panels []*panel, y float64, o drawingOptions) (right, height fl
 		return 0, 0
 	}
 	return x - o.viewGap, top + bottom + o.viewGap
+}
+
+// layOutColumn stacks panels from the top of the sheet in a column starting at x, and returns the
+// column's width and height.
+func layOutColumn(panels []*panel, x float64, o drawingOptions) (width, height float64) {
+	left := 0.0
+	for _, p := range panels {
+		left = math.Max(left, p.margins(o).left)
+	}
+	y := sheetMargin
+	for _, p := range panels {
+		m := p.margins(o)
+		p.left, p.top, p.labelLine = x+left, y+m.top, 0
+		y = p.top + p.boxSize().Y + m.bottom + o.viewGap
+		width = math.Max(width, left+p.boxSize().X+m.right)
+	}
+	return width, y - o.viewGap - sheetMargin
 }

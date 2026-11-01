@@ -50,6 +50,14 @@ type circlePiece struct {
 // pieces; the pieces are fitted together, and circles of which less than minCircleCoverage is seen
 // are left out, since the radius of a short piece is uncertain.
 func (p *panel) faceOnArcs() []faceOnArc {
+	if p.arcs == nil {
+		arcs := p.findFaceOnArcs()
+		p.arcs = &arcs
+	}
+	return *p.arcs
+}
+
+func (p *panel) findFaceOnArcs() []faceOnArc {
 	pieces := p.circlePieces()
 	slices.SortStableFunc(pieces, func(a, b circlePiece) int { return cmp.Compare(b.sweep, a.sweep) })
 	var clusters []*circleCluster

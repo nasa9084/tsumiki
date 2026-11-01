@@ -50,6 +50,11 @@ type drawingOptions struct {
 	dimensions       bool
 	detailDimensions bool
 	sections         []sectionSpec
+	scaleChosen      bool   // DrawingScale was given: a JIS sheet does not pick its own
+	bilingual        bool   // a JIS sheet: labels in Japanese and English, no plain-sheet note
+	number           string // drawing number
+	author           string
+	date             string
 	sampleFraction   float64
 	strokeVisible    float64
 	strokeThin       float64
@@ -82,7 +87,19 @@ func resolveDrawingOptions(options []DrawingOption) drawingOptions {
 func DrawingTitle(title string) DrawingOption { return func(o *drawingOptions) { o.title = title } }
 
 // DrawingScale sets the paper millimeters per model millimeter (default 1, i.e. 1:1).
-func DrawingScale(scale float64) DrawingOption { return func(o *drawingOptions) { o.scale = scale } }
+func DrawingScale(scale float64) DrawingOption {
+	return func(o *drawingOptions) { o.scale, o.scaleChosen = scale, true }
+}
+
+// DrawingNumber prints the drawing number in the title block of a PDF drawing.
+func DrawingNumber(number string) DrawingOption { return func(o *drawingOptions) { o.number = number } }
+
+// DrawingAuthor prints who drew the part in the title block of a PDF drawing.
+func DrawingAuthor(author string) DrawingOption { return func(o *drawingOptions) { o.author = author } }
+
+// DrawingDate prints a date in the title block of a PDF drawing. It is a plain string, so that
+// the same part always gives the same file.
+func DrawingDate(date string) DrawingOption { return func(o *drawingOptions) { o.date = date } }
 
 // WithoutHiddenLines leaves out the dashed lines of edges hidden behind the part.
 func WithoutHiddenLines() DrawingOption { return func(o *drawingOptions) { o.hiddenLines = false } }
@@ -121,38 +138,99 @@ func addSection(axis int, offset float64) DrawingOption {
 // WriteSVG writes a drawing of the mesh as SVG: front, top and right views in third-angle
 // projection, an isometric view and any requested section views, with dimensions in millimeters.
 func (m *Mesh) WriteSVG(w io.Writer, options ...DrawingOption) error {
-	if m == nil || len(m.Triangles) == 0 {
-		return errors.New("tsumiki: cannot draw an empty mesh")
-	}
-	o := resolveDrawingOptions(options)
-	if o.scale <= 0 || math.IsNaN(o.scale) || math.IsInf(o.scale, 0) {
-		return fmt.Errorf("tsumiki: invalid drawing scale %g", o.scale)
-	}
-	set := newEdgeSet(m)
-	front := newPanel(set, ViewFront.camera(), "FRONT", o, o.hiddenLines)
-	top := newPanel(set, ViewTop.camera(), "TOP", o, o.hiddenLines)
-	right := newPanel(set, ViewRight.camera(), "RIGHT", o, o.hiddenLines)
-	iso := newPanel(set, ViewIsometric.camera(), "ISOMETRIC", o, false)
-	sections, err := makeSections(m, o, top, front)
+	o, err := checkDrawing(m, options)
 	if err != nil {
 		return err
 	}
+	views, err := m.drawViews(o)
+	if err != nil {
+		return err
+	}
+	sheet := views.sheet(o, false)
+	bufferedWriter := bufio.NewWriter(w)
+	writeSVG(bufferedWriter, sheet.width, sheet.height, sheet.display(true), o)
+	return bufferedWriter.Flush()
+}
+
+func checkDrawing(m *Mesh, options []DrawingOption) (drawingOptions, error) {
+	if m == nil || len(m.Triangles) == 0 {
+		return drawingOptions{}, errors.New("tsumiki: cannot draw an empty mesh")
+	}
+	o := resolveDrawingOptions(options)
+	if o.scale <= 0 || math.IsNaN(o.scale) || math.IsInf(o.scale, 0) {
+		return o, fmt.Errorf("tsumiki: invalid drawing scale %g", o.scale)
+	}
+	return o, nil
+}
+
+// drawingViews holds the line work of every view, which does not depend on the scale.
+type drawingViews struct {
+	front, top, right, iso *panel
+	sections               []*panel
+}
+
+// drawViews projects the mesh into all views and cuts the sections.
+func (m *Mesh) drawViews(o drawingOptions) (*drawingViews, error) {
+	set := newEdgeSet(m)
+	v := &drawingViews{
+		front: newPanel(set, ViewFront.camera(), viewLabel("FRONT", "正面図", o), o, o.hiddenLines),
+		top:   newPanel(set, ViewTop.camera(), viewLabel("TOP", "平面図", o), o, o.hiddenLines),
+		right: newPanel(set, ViewRight.camera(), viewLabel("RIGHT", "右側面図", o), o, o.hiddenLines),
+		iso:   newPanel(set, ViewIsometric.camera(), viewLabel("ISOMETRIC", "等角図", o), o, false),
+	}
+	for i, spec := range o.sections {
+		p, err := sectionPanel(m, spec, sectionLetter(i), o)
+		if err != nil {
+			return nil, err
+		}
+		v.sections = append(v.sections, p)
+	}
+	return v, nil
+}
+
+// viewLabel names a view in English, or in Japanese and English on a JIS sheet.
+func viewLabel(english, japanese string, o drawingOptions) string {
+	if o.bilingual {
+		return japanese + "  " + english
+	}
+	return english
+}
+
+func sectionLetter(i int) string {
+	letter := string(rune('A' + i%26))
+	if i >= 26 {
+		letter += fmt.Sprint(i / 26)
+	}
+	return letter
+}
+
+// sheet annotates the views at o.scale and lays them out, with the section views below the
+// others or, when sectionsBeside is set, in a column to their right.
+func (v *drawingViews) sheet(o drawingOptions, sectionsBeside bool) *sheet {
+	all := append([]*panel{v.front, v.top, v.right, v.iso}, v.sections...)
+	for _, p := range all {
+		p.scale, p.marks, p.left, p.top, p.labelLine = o.scale, nil, 0, 0, 0
+	}
+	for i, spec := range o.sections {
+		parent := v.top
+		if spec.axis == 2 {
+			parent = v.front
+		}
+		parent.marks = append(parent.marks, cuttingPlaneMarks(parent, spec, sectionLetter(i), o)...)
+	}
 	if o.dimensions {
-		front.addOverallDimensions(o, true, true)
-		top.addOverallDimensions(o, false, true) // the right view's width is the same Y extent
+		v.front.addOverallDimensions(o, true, true)
+		v.top.addOverallDimensions(o, false, true) // the right view's width is the same Y extent
 		if o.detailDimensions {
-			front.addDetailDimensions(o, true)
-			top.addDetailDimensions(o, false)
-			right.addDetailDimensions(o, false)
-			for _, section := range sections {
+			v.front.addDetailDimensions(o, true)
+			v.top.addDetailDimensions(o, false)
+			v.right.addDetailDimensions(o, false)
+			for _, section := range v.sections {
 				section.addDetailDimensions(o, section.camera.up.Z > 0.5)
 			}
 		}
 	}
-	sheet := layOut([2][2]*panel{{top, iso}, {front, right}}, sections, o)
-	bufferedWriter := bufio.NewWriter(w)
-	sheet.write(bufferedWriter)
-	return bufferedWriter.Flush()
+	return layOut([2][2]*panel{{v.top, v.iso}, {v.front, v.right}}, v.sections, o, sectionsBeside)
 }
 
 // SaveSVG writes the drawing made by WriteSVG to path.

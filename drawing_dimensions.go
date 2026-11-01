@@ -259,7 +259,7 @@ func (space *occupancy) cost(marks []mark) int {
 					}
 				}
 			}
-		case markCenter, markThick, markArrow:
+		case markCenter, markThick, markArrow, markVisible, markHidden, markHatch:
 		}
 	}
 	return cost
@@ -295,11 +295,11 @@ func (p *panel) ordinates(values []ordinate, vertical bool, o drawingOptions) []
 			edge := size.X
 			marks = append(marks,
 				lineMark(Vector2{e.from, e.at}, Vector2{edge + 4, e.at}, Vector2{edge + 6, labels[i]}),
-				textMark(Vector2{edge + 7, labels[i] + o.textSize*0.35}, e.text, "start", false, o.textSize))
+				textMark(Vector2{edge + 7, labels[i] + o.textSize*0.35}, e.text, anchorStart, false, o.textSize))
 		} else {
 			marks = append(marks,
 				lineMark(Vector2{e.at, e.from}, Vector2{e.at, -4}, Vector2{labels[i], -6}),
-				textMark(Vector2{labels[i] + o.textSize*0.35, -7}, e.text, "start", true, o.textSize))
+				textMark(Vector2{labels[i] + o.textSize*0.35, -7}, e.text, anchorStart, true, o.textSize))
 		}
 	}
 	return marks

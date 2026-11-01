@@ -2,11 +2,15 @@
 // tsumiki kernel, one feature at a time, and checks it against the Fusion reference values.
 package main
 
+//go:generate go run . -drawings .
+
 import (
+	"flag"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nasa9084/tsumiki"
@@ -372,10 +376,12 @@ func checkProbes(out io.Writer, mesh *tsumiki.Mesh) int {
 }
 
 func main() {
+	models := flag.String("models", "", "directory to write the 3MF and STL models to")
+	drawings := flag.String("drawings", "", "directory to write the SVG and PDF drawings to")
+	flag.Parse()
 	part, err := build(os.Stdout)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fail(err)
 	}
 	fmt.Println()
 	fmt.Print(part.Timeline())
@@ -388,24 +394,40 @@ func main() {
 	mismatchCount := checkProbes(os.Stdout, mesh)
 	fmt.Printf("probe mismatches: %d / %d\n", mismatchCount, len(referenceProbes))
 
-	if len(os.Args) > 1 {
-		dir := os.Args[1]
-		if err := mesh.Save3MF(dir+"/prestera90_guard.3mf", "prestera90-guard"); err != nil {
-			fmt.Println(err)
+	if *models != "" {
+		if err := mesh.Save3MF(filepath.Join(*models, "prestera90_guard.3mf"), "prestera90-guard"); err != nil {
+			fail(err)
 		}
-		if err := mesh.SaveSTL(dir + "/prestera90_guard.stl"); err != nil {
-			fmt.Println(err)
+		if err := mesh.SaveSTL(filepath.Join(*models, "prestera90_guard.stl")); err != nil {
+			fail(err)
 		}
-		drawing := []tsumiki.DrawingOption{
-			tsumiki.DrawingTitle("Prestera90 guard"),
-			tsumiki.SectionY(0),                       // through the zip-tie bump, the skirt, the slit and the fillet
-			tsumiki.SectionX(cornerArcCenterDistance), // across the skirt and both corner arcs
-		}
-		if err := mesh.SaveSVG(dir+"/prestera90_guard.svg", drawing...); err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println("saved to", dir)
+		fmt.Println("models saved to", *models)
 	}
+	if *drawings != "" {
+		if err := mesh.SaveSVG(filepath.Join(*drawings, "prestera90_guard.svg"), drawingOptions...); err != nil {
+			fail(err)
+		}
+		if err := mesh.SavePDF(filepath.Join(*drawings, "prestera90_guard.pdf"), drawingOptions...); err != nil {
+			fail(err)
+		}
+		fmt.Println("drawings saved to", *drawings)
+	}
+}
+
+// drawingOptions describe the guard's drawings. They are kept free of anything that changes from
+// run to run (such as today's date), so CI can check that the committed drawings are current.
+var drawingOptions = []tsumiki.DrawingOption{
+	tsumiki.DrawingTitle("Prestera90 guard"),
+	tsumiki.DrawingNumber("TSK-EX-0001"),
+	tsumiki.DrawingAuthor("nasa9084"),
+	tsumiki.DrawingDate("2026-11-01"),
+	tsumiki.SectionY(0),                       // through the zip-tie bump, the skirt, the slit and the fillet
+	tsumiki.SectionX(cornerArcCenterDistance), // across the skirt and both corner arcs
+}
+
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
 }
 
 // contains is a parity ray test; three skew directions vote to avoid hitting edges exactly.
