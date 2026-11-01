@@ -11,8 +11,10 @@ type panel struct {
 	camera          camera
 	set             *edgeSet
 	buffer          *depthBuffer
-	drawnEdges      []int         // indices into set.edges of the edges drawn in this view
-	neighbors       map[int][]int // mesh vertex adjacency, built when first needed
+	drawnEdges      []int             // indices into set.edges of the edges drawn in this view
+	neighbors       map[int][]int     // mesh vertex adjacency, built when first needed
+	arcs            *[]faceOnArc      // faceOnArcs, once found (they do not depend on the scale)
+	polygons        *[]regularPolygon // regularPolygons, once found
 	visible, hidden []segment2
 	hatch           [][]Vector2 // closed loops of cut faces (section views)
 	low, high       Vector2
@@ -132,5 +134,5 @@ func linearDimension(from1, from2, offset Vector2, text string, o drawingOptions
 		shift = -shift
 	}
 	middle := to1.Add(to2).Scale(0.5).Add(away.Scale(shift))
-	return append(marks, textMark(middle, text, "middle", vertical, o.textSize))
+	return append(marks, textMark(middle, text, anchorMiddle, vertical, o.textSize))
 }

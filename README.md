@@ -50,6 +50,28 @@ faces and mark the plane, lettered A, B, …, on the top view (or, for `SectionZ
 
 Other options: `WithoutHiddenLines`, `WithoutDimensions`, `WithoutDetailDimensions`, `FeatureAngle`.
 
+### PDF (A3, JIS)
+
+`Mesh.WritePDF` / `Mesh.SavePDF` put the same views on an A3 landscape sheet laid out like a JIS part drawing:
+
+- a frame with a 20 mm filing margin, and center marks;
+- view labels in Japanese and English;
+- a title block holding:
+  - the title (`DrawingTitle`), drawing number (`DrawingNumber`), author (`DrawingAuthor`) and date
+    (`DrawingDate`);
+  - the scale and units;
+  - the third-angle projection symbol.
+
+Unless `DrawingScale` is given, the largest JIS standard scale (10:1, 5:1, 2:1, 1:1, 1:2, 1:5, …) at which the views
+fit is used.
+
+The PDF has no fonts. Text is drawn as outlines of built-in glyphs (printable ASCII, the drawing symbols and the
+Japanese of the labels), derived from Noto Sans CJK JP by `internal/fontgen` (SIL Open Font License, see
+`third_party/noto-cjk/LICENSE`). Other characters are an error.
+
+The file holds no timestamps, so the same part always gives the same bytes. Coordinates are written to 0.01 mm,
+coarse enough that the output does not depend on the processor architecture.
+
 The SVG is sized in millimeters, so it prints at the chosen scale. A few things to keep in mind:
 
 - Hidden-line removal samples each edge, so features much narrower than about 1/2000 of the view's diagonal
@@ -72,8 +94,12 @@ Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One bool
 `cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.
 
 ```sh
-go run ./cmd/guard ./out   # writes a 3MF, an STL and an SVG drawing to ./out
+go run ./cmd/guard -models ./out   # writes a 3MF and an STL to ./out
+go generate ./cmd/...              # regenerates the drawings next to the code (cmd/guard/prestera90_guard.{pdf,svg})
 ```
+
+The drawings are committed: the SVG shows changes to the part as an image diff in pull requests, and the PDF is
+the A3 sheet. CI regenerates them on amd64 and arm64 and fails when they differ from the committed ones.
 
 ## Development
 
@@ -82,6 +108,8 @@ go test ./...                 # unit tests, including the full guard build (abou
 go test -short ./...          # skips the slow guard build
 STRESS_N=400 go test -run TestBooleanRandom -v
 golangci-lint run ./...       # lint (golangci-lint v2, see .golangci.yml)
+go generate ./cmd/...         # regenerate the example drawings after changing the part or the drawing code
+(cd internal/fontgen && go run .)  # regenerate glyphs_data.go (needs Noto Sans CJK, e.g. the fonts-noto-cjk package)
 ```
 
 Pull requests run the unit tests and golangci-lint through GitHub Actions (`.github/workflows/ci.yml`).

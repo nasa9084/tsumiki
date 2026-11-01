@@ -38,3 +38,26 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.15.0
+
+  drawings:
+    name: drawings are up to date (${{ matrix.runner }})
+    # Run on both architectures: arm64 may fuse floating-point multiply-adds where amd64 does
+    # not, and the committed drawings must come out the same wherever they are generated.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Regenerate drawings
+        run: go generate ./cmd/...
+      - name: Check that the committed drawings match
+        run: |
+          if ! git diff --exit-code --stat; then
+            echo "::error::The drawings are out of date. Run 'go generate ./cmd/...' and commit the result."
+            exit 1
+          fi

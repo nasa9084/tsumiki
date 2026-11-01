@@ -18,6 +18,14 @@ const maxPolygonSides = 8 // regular polygons with more sides are left to circle
 // regularPolygons returns the visible regular polygons of the view (closed outlines with equal
 // sides and equal corners, too coarse to be circles), one per distinct outline.
 func (p *panel) regularPolygons() []regularPolygon {
+	if p.polygons == nil {
+		polygons := p.findRegularPolygons()
+		p.polygons = &polygons
+	}
+	return *p.polygons
+}
+
+func (p *panel) findRegularPolygons() []regularPolygon {
 	neighbors := map[int][]int{}
 	for _, i := range p.drawnEdges {
 		e := p.set.edges[i]
