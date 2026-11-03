@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"math"
 	"testing"
@@ -101,14 +102,44 @@ func TestCornerCutterEncloses(t *testing.T) {
 	}
 }
 
-func TestContainsRayCast(t *testing.T) {
-	cube := tsumiki.NewPart("cube").Extrude(tsumiki.NewSketch(tsumiki.XY(0)).Rect(0, 0, 2, 2), 2).Mesh()
-	if !contains(cube, tsumiki.Vector3{X: 0, Y: 0, Z: 1}) {
-		t.Error("center of the cube should be inside")
+// probe is one point of the spec's in/out table (section 5).
+type probe struct {
+	x, y, z     float64
+	inside      bool
+	description string
+}
+
+var referenceProbes = []probe{
+	{0.9, 35, 0.7, true, "split-edge frame"},
+	{0.4, 35, 0.7, false, "before split plane"},
+	{cornerArcCenterDistance + 17.5, 0, -7.5, true, "bump inside"},
+	{cornerArcCenterDistance + 18.1, 0, -7.5, false, "bump outside"},
+	{cornerArcCenterDistance + 18.5, 0, -1.5, true, "fillet inside"},
+	{cornerArcCenterDistance + 19.2, 0, -1.5, false, "fillet outside"},
+	{49.0, 0, -1.0, false, "slit space"},
+	{48.8, 0, -3.0, true, "under slit ceiling slope"},
+	{1.2, 45.695, 0.7, false, "wire notch"},
+	{1.2, -45.695, 0.7, true, "-y side, no notch"},
+	{64.8, 0, 1.4, false, "top rim R1"},
+	{64.0, 0, 1.4, true, "near rim"},
+	{64.9, 0, 0.2, true, "rim lower"},
+	{63.0, 0, 0.7, true, "outer frame"},
+}
+
+// checkProbes tests the reference points against mesh and returns how many disagree.
+func checkProbes(out io.Writer, mesh *tsumiki.Mesh) int {
+	mismatchCount := 0
+	for _, q := range referenceProbes {
+		got := mesh.Contains(tsumiki.Vector3{X: q.x, Y: q.y, Z: q.z})
+		mark := "ok"
+		if got != q.inside {
+			mark = "MISMATCH"
+			mismatchCount++
+		}
+		_, _ = fmt.Fprintf(out, "  (%7.3f,%7.3f,%6.2f) want %-5v got %-5v %-9s %s\n",
+			q.x, q.y, q.z, q.inside, got, mark, q.description)
 	}
-	if contains(cube, tsumiki.Vector3{X: 3, Y: 0, Z: 1}) || contains(cube, tsumiki.Vector3{X: 0, Y: 0, Z: 3}) {
-		t.Error("points outside the cube reported inside")
-	}
+	return mismatchCount
 }
 
 // TestBuildMatchesTheReferenceModel runs the whole 13-step build (about 25 s).
