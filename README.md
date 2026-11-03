@@ -16,7 +16,7 @@ fmt.Print(p.Timeline())
 ## Features
 
 - 2D sketches: polygons, circles, rounded rectangles, line/arc paths (nesting is resolved even-odd, so inner loops become holes)
-- Extrude (with taper) and revolve; join, cut and intersect
+- Extrude (with taper or twist, e.g. for screw threads) and revolve; join, cut and intersect
 - 3MF and binary STL export; watertightness and volume checks
 - SVG drawings (see below)
 
@@ -116,6 +116,8 @@ go run ./cmd/bracket -quiet            # print nothing but errors
 `Mesh.Contains` tells whether a point is inside the part, which is handy for checking a model in its tests.
 
 ## Example
+
+`cmd/timercam` holds a three-part camera mount (a pillar clip with a ball socket, a band with the ball, and a printed thumb screw whose thread is a twisted extrusion).
 
 `cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.
 

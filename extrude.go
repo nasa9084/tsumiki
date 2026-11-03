@@ -71,6 +71,13 @@ func extrudeMesh(plane Plane, regions []Region, distance, taperDegrees, start fl
 		}
 		m.merge(regionMesh)
 	}
+	placeOnPlane(m, plane, distance, start)
+	return m, nil
+}
+
+// placeOnPlane moves a solid built along +Z from z = 0 onto plane, flipping it to the far side for a
+// negative distance and shifting it by start along the normal.
+func placeOnPlane(m *Mesh, plane Plane, distance, start float64) {
 	mirror := distance < 0
 	m.transform(func(p Vector3) Vector3 {
 		w := p.Z
@@ -79,7 +86,66 @@ func extrudeMesh(plane Plane, regions []Region, distance, taperDegrees, start fl
 		}
 		return plane.Point(p.X, p.Y, w+start)
 	}, mirror)
-	return m, nil
+}
+
+// twistedExtrudeMesh extrudes regions like extrudeMesh while turning them by twistDegrees about the
+// plane origin. The sweep is cut into layers fine enough that the point farthest from the origin
+// stays within tolerance of its helix, and the edges of the section are split so that the twisted
+// strip between two layers stays within tolerance of the two triangles that stand for it.
+func twistedExtrudeMesh(plane Plane, regions []Region, distance, twistDegrees, start, tolerance float64) *Mesh {
+	if tolerance <= 0 {
+		tolerance = DefaultTolerance
+	}
+	height := math.Abs(distance)
+	sweep := Radians(twistDegrees)
+	maxRadius := 0.0
+	for _, r := range regions {
+		for _, l := range append([]Loop{r.Outer}, r.Holes...) {
+			for _, p := range l {
+				maxRadius = math.Max(maxRadius, p.Length())
+			}
+		}
+	}
+	layers := arcSteps(maxRadius, math.Abs(sweep), tolerance)
+	// An edge of length L turned by a step of dθ bows out of its two triangles by about L·dθ/4.
+	maxEdgeLength := 4 * tolerance * float64(layers) / math.Max(math.Abs(sweep), 1e-12)
+	m := &Mesh{}
+	for _, r := range regions {
+		holes := make([]Loop, len(r.Holes))
+		for i, h := range r.Holes {
+			holes[i] = splitLongEdges(h, maxEdgeLength)
+		}
+		r = Region{Outer: splitLongEdges(r.Outer, maxEdgeLength), Holes: holes}
+		loops := append([]Loop{r.Outer}, r.Holes...)
+		points, triangles := triangulateRegion(r.Outer, r.Holes)
+		n := len(points)
+		regionMesh := &Mesh{}
+		for k := range layers + 1 {
+			fraction := float64(k) / float64(layers)
+			for _, p := range points {
+				q := p.Rotate(sweep * fraction)
+				regionMesh.Vertices = append(regionMesh.Vertices, Vector3{q.X, q.Y, height * fraction})
+			}
+		}
+		top := layers * n
+		for _, t := range triangles {
+			regionMesh.Triangles = append(regionMesh.Triangles,
+				Triangle{t[0], t[2], t[1]}, Triangle{t[0] + top, t[1] + top, t[2] + top})
+		}
+		for k := range layers {
+			base := k * n
+			for _, l := range loops {
+				for i := range l {
+					a, b := base+i, base+(i+1)%len(l)
+					regionMesh.Triangles = append(regionMesh.Triangles, Triangle{a, b, b + n}, Triangle{a, b + n, a + n})
+				}
+				base += len(l)
+			}
+		}
+		m.merge(regionMesh)
+	}
+	placeOnPlane(m, plane, distance, start)
+	return m
 }
 
 // checkOffset rejects a taper that collapses or inverts the profile: every edge must keep its
@@ -167,4 +233,17 @@ func (m *Mesh) addSweptWalls(loops []Loop, currentRing, nextRing, n int) {
 		}
 		base += len(l)
 	}
+}
+
+// splitLongEdges inserts evenly spaced points into every edge of l longer than maxLength.
+func splitLongEdges(l Loop, maxLength float64) Loop {
+	var out Loop
+	for i, p := range l {
+		next := l[(i+1)%len(l)]
+		pieces := max(int(math.Ceil(next.Sub(p).Length()/maxLength)), 1)
+		for k := range pieces {
+			out = append(out, p.Add(next.Sub(p).Scale(float64(k)/float64(pieces))))
+		}
+	}
+	return out
 }
