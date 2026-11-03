@@ -89,6 +89,32 @@ shapes (`stress_test.go`).
 
 Limits: coordinates must stay within ±500 mm and are rounded to 1 µm. One boolean on a large mesh takes a few hundred ms.
 
+## Model commands
+
+The `modelcmd` package turns a model into a command, so that the model's code only describes the part. It handles
+the flags, prints the part's timeline, bounds and volume, refuses a part that is not watertight, and saves the
+models and drawings:
+
+```go
+//go:generate go run . -drawings .
+
+func main() {
+	modelcmd.Main(modelcmd.Model{
+		Name:    "bracket",            // bracket.3mf, bracket.stl, bracket.svg, bracket.pdf
+		Build:   build,                // func(log io.Writer) (*tsumiki.Part, error)
+		Drawing: []tsumiki.DrawingOption{tsumiki.DrawingTitle("Bracket"), tsumiki.SectionY(0)},
+	})
+}
+```
+
+```sh
+go run ./cmd/bracket -models ./out     # NAME.3mf and NAME.stl
+go run ./cmd/bracket -drawings ./out   # NAME.svg and NAME.pdf
+go run ./cmd/bracket -quiet            # print nothing but errors
+```
+
+`Mesh.Contains` tells whether a point is inside the part, which is handy for checking a model in its tests.
+
 ## Example
 
 `cmd/guard` rebuilds a half-split plate-with-skirt plant guard (364 hex through-holes and 100 recesses) in 13 steps.

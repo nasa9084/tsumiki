@@ -5,15 +5,13 @@ package main
 //go:generate go run . -drawings .
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"math"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/nasa9084/tsumiki"
+	"github.com/nasa9084/tsumiki/modelcmd"
 )
 
 const (
@@ -335,83 +333,8 @@ func cutWireNotch(part *tsumiki.Part, _ cellSets) {
 		plateThickness, tsumiki.Cut())
 }
 
-// probe is one point of the spec's in/out table (section 5).
-type probe struct {
-	x, y, z     float64
-	inside      bool
-	description string
-}
-
-var referenceProbes = []probe{
-	{0.9, 35, 0.7, true, "split-edge frame"},
-	{0.4, 35, 0.7, false, "before split plane"},
-	{cornerArcCenterDistance + 17.5, 0, -7.5, true, "bump inside"},
-	{cornerArcCenterDistance + 18.1, 0, -7.5, false, "bump outside"},
-	{cornerArcCenterDistance + 18.5, 0, -1.5, true, "fillet inside"},
-	{cornerArcCenterDistance + 19.2, 0, -1.5, false, "fillet outside"},
-	{49.0, 0, -1.0, false, "slit space"},
-	{48.8, 0, -3.0, true, "under slit ceiling slope"},
-	{1.2, 45.695, 0.7, false, "wire notch"},
-	{1.2, -45.695, 0.7, true, "-y side, no notch"},
-	{64.8, 0, 1.4, false, "top rim R1"},
-	{64.0, 0, 1.4, true, "near rim"},
-	{64.9, 0, 0.2, true, "rim lower"},
-	{63.0, 0, 0.7, true, "outer frame"},
-}
-
-// checkProbes tests the reference points against mesh and returns how many disagree.
-func checkProbes(out io.Writer, mesh *tsumiki.Mesh) int {
-	mismatchCount := 0
-	for _, q := range referenceProbes {
-		got := contains(mesh, tsumiki.Vector3{X: q.x, Y: q.y, Z: q.z})
-		mark := "ok"
-		if got != q.inside {
-			mark = "MISMATCH"
-			mismatchCount++
-		}
-		_, _ = fmt.Fprintf(out, "  (%7.3f,%7.3f,%6.2f) want %-5v got %-5v %-9s %s\n",
-			q.x, q.y, q.z, q.inside, got, mark, q.description)
-	}
-	return mismatchCount
-}
-
 func main() {
-	models := flag.String("models", "", "directory to write the 3MF and STL models to")
-	drawings := flag.String("drawings", "", "directory to write the SVG and PDF drawings to")
-	flag.Parse()
-	part, err := build(os.Stdout)
-	if err != nil {
-		fail(err)
-	}
-	fmt.Println()
-	fmt.Print(part.Timeline())
-	mesh := part.Mesh()
-	lo, hi := mesh.Bounds()
-	report := part.Report()
-	fmt.Printf("\nbbox  x %.3f..%.3f (0.7..65)  y %.3f..%.3f (±64.89)  z %.3f..%.3f (-12..1.5)\n",
-		lo.X, hi.X, lo.Y, hi.Y, lo.Z, hi.Z)
-	fmt.Printf("volume %.2f (spec ≈9979.6)   watertight=%v  %+v\n", report.Volume, report.Watertight(), report)
-	mismatchCount := checkProbes(os.Stdout, mesh)
-	fmt.Printf("probe mismatches: %d / %d\n", mismatchCount, len(referenceProbes))
-
-	if *models != "" {
-		if err := mesh.Save3MF(filepath.Join(*models, "prestera90_guard.3mf"), "prestera90-guard"); err != nil {
-			fail(err)
-		}
-		if err := mesh.SaveSTL(filepath.Join(*models, "prestera90_guard.stl")); err != nil {
-			fail(err)
-		}
-		fmt.Println("models saved to", *models)
-	}
-	if *drawings != "" {
-		if err := mesh.SaveSVG(filepath.Join(*drawings, "prestera90_guard.svg"), drawingOptions...); err != nil {
-			fail(err)
-		}
-		if err := mesh.SavePDF(filepath.Join(*drawings, "prestera90_guard.pdf"), drawingOptions...); err != nil {
-			fail(err)
-		}
-		fmt.Println("drawings saved to", *drawings)
-	}
+	modelcmd.Main(modelcmd.Model{Name: "prestera90_guard", Build: build, Drawing: drawingOptions})
 }
 
 // drawingOptions describe the guard's drawings. They are kept free of anything that changes from
@@ -423,49 +346,4 @@ var drawingOptions = []tsumiki.DrawingOption{
 	tsumiki.DrawingDate("2026-11-01"),
 	tsumiki.SectionY(0),                       // through the zip-tie bump, the skirt, the slit and the fillet
 	tsumiki.SectionX(cornerArcCenterDistance), // across the skirt and both corner arcs
-}
-
-func fail(err error) {
-	fmt.Fprintln(os.Stderr, err)
-	os.Exit(1)
-}
-
-// contains is a parity ray test; three skew directions vote to avoid hitting edges exactly.
-func contains(m *tsumiki.Mesh, q tsumiki.Vector3) bool {
-	directions := []tsumiki.Vector3{
-		{X: 0.5773, Y: 0.3141, Z: 0.7532},
-		{X: -0.2718, Y: 0.8123, Z: 0.5127},
-		{X: 0.1234, Y: -0.6543, Z: 0.7456},
-	}
-	votes := 0
-	for _, d := range directions {
-		hits := 0
-		for _, t := range m.Triangles {
-			a, b, c := m.Vertices[t[0]], m.Vertices[t[1]], m.Vertices[t[2]]
-			firstEdge, secondEdge := b.Sub(a), c.Sub(a)
-			h := d.Cross(secondEdge)
-			determinant := firstEdge.Dot(h)
-			if math.Abs(determinant) < 1e-12 {
-				continue
-			}
-			f := 1 / determinant
-			s := q.Sub(a)
-			u := f * s.Dot(h)
-			if u < 0 || u > 1 {
-				continue
-			}
-			qv := s.Cross(firstEdge)
-			v := f * d.Dot(qv)
-			if v < 0 || u+v > 1 {
-				continue
-			}
-			if f*secondEdge.Dot(qv) > 0 {
-				hits++
-			}
-		}
-		if hits%2 == 1 {
-			votes++
-		}
-	}
-	return votes >= 2
 }
