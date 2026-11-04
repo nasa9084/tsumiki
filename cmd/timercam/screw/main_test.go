@@ -37,6 +37,10 @@ func TestScrewThreadFollowsTheProfile(t *testing.T) {
 		{"the chamfered bottom edge of the knob", tsumiki.Vector3{X: 0, Y: 7.85, Z: 0.1}, false},
 		{"the chamfered tip edge", tsumiki.Vector3{X: 3.6, Y: 0, Z: 9.9}, false},
 		{"the middle of the tip", tsumiki.Vector3{X: 0, Y: 0, Z: 9.9}, true},
+		{"the pin", tsumiki.Vector3{X: 1.9, Y: 0, Z: 10.5}, true},
+		{"beside the pin", tsumiki.Vector3{X: 2.1, Y: 0, Z: 10.5}, false},
+		{"the chamfer at the end of the pin", tsumiki.Vector3{X: 1.9, Y: 0, Z: 11.1}, false},
+		{"the end of the pin", tsumiki.Vector3{X: 0, Y: 0, Z: 11.15}, true},
 	} {
 		if got := mesh.Contains(c.point); got != c.inside {
 			t.Errorf("%s: Contains(%v) = %v, want %v", c.name, c.point, got, c.inside)

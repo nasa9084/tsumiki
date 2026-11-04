@@ -24,6 +24,11 @@ const (
 	notchRadius    = 1.0
 	tipChamferSize = 0.8 // 45° chamfer at the tip, to find the nut easily
 	knobChamfer    = 0.6 // 45° on the top and bottom edges of the knob
+	// The thread stops on the ledge where the nut ends (0.2 above the ball), so a thinner pin at
+	// the tip reaches past it and presses the ball. The ledge leaves room for r < 2.83.
+	pinRadius  = 2.0
+	pinLength  = 1.2 // touches the ball with 1 mm to spare before the thread meets the ledge
+	pinChamfer = 0.3
 )
 
 func build(_ io.Writer) (*tsumiki.Part, error) {
@@ -51,6 +56,10 @@ func build(_ io.Writer) (*tsumiki.Part, error) {
 		tsumiki.Vector2{X: majorRadius + 1, Y: top + 0.5},
 	)
 	part.Revolve(chamfer, 360, tsumiki.Cut())
+
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(top)).Circle(0, 0, pinRadius), pinLength-pinChamfer)
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(top+pinLength-pinChamfer)).Circle(0, 0, pinRadius),
+		pinChamfer, tsumiki.Taper(-45))
 
 	return part, part.Err()
 }
