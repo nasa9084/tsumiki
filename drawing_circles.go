@@ -59,7 +59,11 @@ func (p *panel) faceOnArcs() []faceOnArc {
 
 func (p *panel) findFaceOnArcs() []faceOnArc {
 	pieces := p.circlePieces()
-	slices.SortStableFunc(pieces, func(a, b circlePiece) int { return cmp.Compare(b.sweep, a.sweep) })
+	// Symmetric pieces sweep the same angle up to the last bits, which differ between processors
+	// (arm64 fuses multiply-adds): compare to a micro-radian so that ties keep the order of the chains.
+	slices.SortStableFunc(pieces, func(a, b circlePiece) int {
+		return cmp.Compare(math.Round(b.sweep*1e6), math.Round(a.sweep*1e6))
+	})
 	var clusters []*circleCluster
 	for _, piece := range pieces {
 		if cluster := joinable(clusters, piece); cluster != nil {
