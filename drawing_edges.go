@@ -63,7 +63,9 @@ func (s *edgeSet) isFeature(e *meshEdge, cosFeatureAngle float64) bool {
 	if e.count != 2 {
 		return true
 	}
-	return s.normals[e.faces[0]].Dot(s.normals[e.faces[1]]) < cosFeatureAngle
+	// Faceted curves have creases of exactly the feature angle between their facets; the margin
+	// keeps rounding (which differs between processors) from deciding on them.
+	return s.normals[e.faces[0]].Dot(s.normals[e.faces[1]]) < cosFeatureAngle-featureMargin
 }
 
 // isSilhouette reports whether one face of the edge looks towards the viewer and the other does
@@ -104,9 +106,10 @@ const (
 	// insideMargin lets a triangle cover points on its border, up to rounding (relative to the
 	// edge length), so that the seams between the triangles of one face do not let hidden
 	// lines show through.
-	insideMargin = 1e-9 // mm; the rounding of a cross product of view coordinates reaches 1e-12 and differs between processors
-	gridPadding  = 1e-7 // mm; far above rounding noise, far below any feature
-	depthMargin  = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
+	insideMargin  = 1e-9 // mm; the rounding of a cross product of view coordinates reaches 1e-12 and differs between processors
+	featureMargin = 1e-9
+	gridPadding   = 1e-7 // mm; far above rounding noise, far below any feature
+	depthMargin   = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
 )
 
 func newDepthBuffer(set *edgeSet, c camera) *depthBuffer {
