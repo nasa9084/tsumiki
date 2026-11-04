@@ -149,7 +149,16 @@ func (p *panel) featureLabel(group []sizedFeature, space *occupancy, o drawingOp
 		size := p.boxSize()
 		return math.Min(math.Min(r.X, size.X-r.X), math.Min(r.Y, size.Y-r.Y))
 	}
-	slices.SortStableFunc(members, func(a, b sizedFeature) int { return cmp.Compare(edgeDistance(a), edgeDistance(b)) })
+	// Symmetric features are equally far from the edge, but only up to the last bits, which differ
+	// between processors (arm64 fuses multiply-adds). Compare at 1 µm and break ties by position so
+	// that every machine picks the same member.
+	slices.SortStableFunc(members, func(a, b sizedFeature) int {
+		return cmp.Or(
+			cmp.Compare(toMicrometers(edgeDistance(a)), toMicrometers(edgeDistance(b))),
+			cmp.Compare(toMicrometers(a.center.X), toMicrometers(b.center.X)),
+			cmp.Compare(toMicrometers(a.center.Y), toMicrometers(b.center.Y)),
+		)
+	})
 	var best []mark
 	bestCost := math.MaxInt
 	for _, member := range members[:min(len(members), 6)] {
@@ -175,6 +184,9 @@ func (p *panel) featureLabel(group []sizedFeature, space *occupancy, o drawingOp
 	return best
 }
 
+// toMicrometers rounds a length in millimeters to whole micrometers.
+func toMicrometers(millimeters float64) int64 { return int64(math.Round(millimeters * 1000)) }
+
 // leaderLabel is a label at the end of a leader that starts at at and runs reach millimeters
 // along direction, then a short way sideways.
 func leaderLabel(at, direction Vector2, reach float64, text string, o drawingOptions) []mark {
@@ -199,8 +211,15 @@ type occupancy struct {
 
 const occupancyCell = 1.0 // paper mm
 
+// cellOf is the cell a point falls in. The point is rounded to whole micrometers first so that a
+// point on a cell edge lands in the same cell on every processor (arm64 fuses multiply-adds, which
+// moves results by the last bit).
 func (space *occupancy) cellOf(point Vector2) [2]int {
-	return [2]int{int(math.Floor(point.X / occupancyCell)), int(math.Floor(point.Y / occupancyCell))}
+	return [2]int{cellIndex(point.X), cellIndex(point.Y)}
+}
+
+func cellIndex(millimeters float64) int {
+	return int(math.Floor(float64(toMicrometers(millimeters)) / (occupancyCell * 1000)))
 }
 
 // occupancy maps the panel's lines and the texts of its annotations.
@@ -349,7 +368,7 @@ func roundedRadius(radius float64) float64 {
 
 // addLine records the cells a line runs through as drawn on.
 func (space *occupancy) addLine(a, b Vector2) {
-	steps := int(b.Sub(a).Length()/(occupancyCell/2)) + 1
+	steps := int(float64(toMicrometers(b.Sub(a).Length()))/(occupancyCell*500)) + 1
 	for k := 0; k <= steps; k++ {
 		space.cells[space.cellOf(a.Add(b.Sub(a).Scale(float64(k)/float64(steps))))] |= 1
 	}

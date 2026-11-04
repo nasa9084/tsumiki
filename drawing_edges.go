@@ -63,7 +63,9 @@ func (s *edgeSet) isFeature(e *meshEdge, cosFeatureAngle float64) bool {
 	if e.count != 2 {
 		return true
 	}
-	return s.normals[e.faces[0]].Dot(s.normals[e.faces[1]]) < cosFeatureAngle
+	// Faceted curves have creases of exactly the feature angle between their facets; the margin
+	// keeps rounding (which differs between processors) from deciding on them.
+	return s.normals[e.faces[0]].Dot(s.normals[e.faces[1]]) < cosFeatureAngle-featureMargin
 }
 
 // isSilhouette reports whether one face of the edge looks towards the viewer and the other does
@@ -104,8 +106,11 @@ const (
 	// insideMargin lets a triangle cover points on its border, up to rounding (relative to the
 	// edge length), so that the seams between the triangles of one face do not let hidden
 	// lines show through.
-	insideMargin = 1e-12
-	depthMargin  = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
+	insideMargin    = 1e-9 // mm; cross-product rounding reaches 1e-12 and differs between processors
+	minTriangleArea = 1e-8 // mm², twice the area
+	featureMargin   = 1e-9
+	gridPadding     = 1e-7 // mm; far above rounding noise, far below any feature
+	depthMargin     = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
 )
 
 func newDepthBuffer(set *edgeSet, c camera) *depthBuffer {
@@ -148,6 +153,10 @@ func (b *depthBuffer) buildGrid(low, high Vector2) {
 			triangleLow = Vector2{math.Min(triangleLow.X, corner.X), math.Min(triangleLow.Y, corner.Y)}
 			triangleHigh = Vector2{math.Max(triangleHigh.X, corner.X), math.Max(triangleHigh.Y, corner.Y)}
 		}
+		// Pad the box a little: a point on the border of a triangle may fall into the next cell
+		// by the last bits of rounding, and must still find the triangle there.
+		pad := Vector2{gridPadding, gridPadding}
+		triangleLow, triangleHigh = triangleLow.Sub(pad), triangleHigh.Add(pad)
 		firstColumn, firstRow := b.cellOf(triangleLow)
 		lastColumn, lastRow := b.cellOf(triangleHigh)
 		for column := firstColumn; column <= lastColumn; column++ {
@@ -198,8 +207,8 @@ func (b *depthBuffer) nearest(s Vector2) (float64, bool) {
 func (t *projectedTriangle) depthAt(s Vector2) (float64, bool) {
 	var weights [3]float64
 	area := twiceSignedArea(t.corners[0], t.corners[1], t.corners[2])
-	if area <= 0 {
-		return 0, false
+	if area <= minTriangleArea {
+		return 0, false // a sliver seen edge-on: its depth is all rounding
 	}
 	for k := range 3 {
 		from, to := t.corners[(k+1)%3], t.corners[(k+2)%3]

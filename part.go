@@ -68,6 +68,7 @@ func (p *Part) Timeline() string {
 type featureOptions struct {
 	operation BoolOperation
 	taper     float64
+	twist     float64
 	start     float64
 }
 
@@ -82,6 +83,11 @@ func Intersect() FeatureOption { return func(o *featureOptions) { o.operation = 
 
 // Taper sets the taper angle in degrees; positive grows the section with distance.
 func Taper(degrees float64) FeatureOption { return func(o *featureOptions) { o.taper = degrees } }
+
+// Twist turns the section by degrees while it is extruded, counterclockwise in the sketch's (u, v)
+// coordinates, so that a positive twist over a positive distance sweeps a right-hand helix. The
+// section turns about the sketch origin. Twisted extrusions cannot be tapered.
+func Twist(degrees float64) FeatureOption { return func(o *featureOptions) { o.twist = degrees } }
 
 // StartOffset shifts the start of the extrusion along the plane normal.
 func StartOffset(distance float64) FeatureOption {
@@ -111,7 +117,17 @@ func (p *Part) Extrude(s *Sketch, distance float64, options ...FeatureOption) *P
 	if o.taper != 0 {
 		name += fmt.Sprintf(" taper %.3g°", o.taper)
 	}
-	tool, err := extrudeMesh(s.Plane, regions, distance, o.taper, o.start)
+	var tool *Mesh
+	var err error
+	switch {
+	case o.twist != 0 && o.taper != 0:
+		err = errors.New("a twisted extrusion cannot be tapered")
+	case o.twist != 0:
+		name += fmt.Sprintf(" twist %.4g°", o.twist)
+		tool = twistedExtrudeMesh(s.Plane, regions, distance, o.twist, o.start, s.Tolerance)
+	default:
+		tool, err = extrudeMesh(s.Plane, regions, distance, o.taper, o.start)
+	}
 	if err != nil {
 		p.err = fmt.Errorf("extrude: %w", err)
 		return p
