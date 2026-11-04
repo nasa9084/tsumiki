@@ -99,25 +99,63 @@ func (p *panel) circlePieces() []circlePiece {
 			points[i], _ = p.camera.project(p.set.mesh.Vertices[index])
 		}
 		kept := withoutStraightJoints(points)
-		for _, run := range arcsAlong(points, kept) {
-			corners := make([]Vector3, len(run.indices))
-			for i, k := range run.indices {
-				corners[i] = p.set.mesh.Vertices[chain[k]]
-			}
-			low, high := math.Inf(1), math.Inf(-1)
-			for _, corner := range corners {
-				_, depth := p.camera.project(corner)
-				low, high = math.Min(low, depth), math.Max(high, depth)
-			}
-			run.piece.depth, run.piece.near, run.piece.vertex = high-low, low, chain[run.indices[0]]
-			// A circle seen square-on keeps its depth, give or take an outline that zigzags between
-			// two faceted surfaces; a curve that runs away from the viewer only looks like an arc.
-			if run.piece.depth <= 0.05+0.05*run.piece.radius && p.mostlyVisible(corners) {
-				pieces = append(pieces, run.piece)
+		runs := arcsAlong(points, kept)
+		for _, run := range runs {
+			if piece, corners, ok := p.squareOnPiece(chain, points, run); ok && p.mostlyVisible(corners) {
+				pieces = append(pieces, piece)
 			}
 		}
 	}
 	return pieces
+}
+
+// maxEndTrim is how many points may be cut off the ends of a circular run that strays in depth.
+const maxEndTrim = 2
+
+// squareOnPiece turns a circular run along a chain into a piece of a circle seen square-on, or
+// reports false. Such a circle keeps its depth, give or take an outline that zigzags between two
+// faceted surfaces; a curve that runs away from the viewer only looks like an arc. A run that
+// strays only at its ends, where the outline goes on along a neighboring surface that happens to
+// continue the arc in the view, is cut back to the part that keeps its depth.
+func (p *panel) squareOnPiece(chain []int, points []Vector2, run circleRun) (circlePiece, []Vector3, bool) {
+	indices, piece := run.indices, run.piece
+	depthOf := func(indices []int) (low, high float64, corners []Vector3) {
+		low, high = math.Inf(1), math.Inf(-1)
+		for _, k := range indices {
+			corner := p.set.mesh.Vertices[chain[k]]
+			_, depth := p.camera.project(corner)
+			low, high = math.Min(low, depth), math.Max(high, depth)
+			corners = append(corners, corner)
+		}
+		return low, high, corners
+	}
+	for trim := 0; ; trim++ {
+		low, high, corners := depthOf(indices)
+		piece.depth, piece.near, piece.vertex = high-low, low, chain[indices[0]]
+		if piece.depth <= 0.05+0.05*piece.radius {
+			return piece, corners, true
+		}
+		if trim == maxEndTrim || len(indices) <= minArcSegments+1 {
+			return circlePiece{}, nil, false
+		}
+		// cut off the end whose removal leaves the smaller range of depths
+		withoutFirst, withoutLast := indices[1:], indices[:len(indices)-1]
+		lowFirst, highFirst, _ := depthOf(withoutFirst)
+		lowLast, highLast, _ := depthOf(withoutLast)
+		indices = withoutLast
+		if highFirst-lowFirst < highLast-lowLast {
+			indices = withoutFirst
+		}
+		trimmed := make([]Vector2, len(indices))
+		for i, k := range indices {
+			trimmed[i] = points[k]
+		}
+		fit, ok := fitPiece(trimmed)
+		if !ok || fit.sweep < Radians(minArcDegrees) {
+			return circlePiece{}, nil, false
+		}
+		piece = fit
+	}
 }
 
 // mostlyVisible reports whether most of the points along a polyline are in sight.
