@@ -21,7 +21,8 @@ const (
 	sameValueSpacing  = 0.01 // dimension values closer than this are the same (mm)
 	straightTolerance = 2e-3 // a point this close to the line through its neighbors is no corner (mm)
 	minArcDegrees     = 10   // runs that turn less than this are treated as straight
-	minCircleCoverage = 30   // circles seen over less than this many degrees are not dimensioned
+	minCircleCoverage = 45   // circles seen over less than this many degrees are not dimensioned
+	fullCircleDegrees = 300  // a closed outline that turns less than this is not a circle (a sliver, say)
 	coverageBins      = 72   // resolution of the record of which directions of a circle were seen
 )
 
@@ -132,7 +133,7 @@ func (p *panel) squareOnPiece(chain []int, points []Vector2, run circleRun) (cir
 	for trim := 0; ; trim++ {
 		low, high, corners := depthOf(indices)
 		piece.depth, piece.near, piece.vertex = high-low, low, chain[indices[0]]
-		if piece.depth <= 0.05+0.05*piece.radius {
+		if piece.depth <= depthAllowed(piece) {
 			return piece, corners, true
 		}
 		if trim == maxEndTrim || len(indices) <= minArcSegments+1 {
@@ -157,6 +158,21 @@ func (p *panel) squareOnPiece(chain []int, points []Vector2, run circleRun) (cir
 		piece = fit
 	}
 }
+
+// depthAllowed is how much depth a circular piece may have and still be seen square-on. A long
+// arc may zigzag between two faceted surfaces, but a short one that gains any depth is a stretch
+// of a helix (a thread seen from its axis).
+func depthAllowed(piece circlePiece) float64 {
+	if piece.sweep < Radians(shortArcDegrees) {
+		return shortArcDepth
+	}
+	return 0.05 + 0.05*piece.radius
+}
+
+const (
+	shortArcDegrees = 45   // arcs that turn less than this must keep their depth
+	shortArcDepth   = 0.01 // mm
+)
 
 // mostlyVisible reports whether most of the points along a polyline are in sight.
 func (p *panel) mostlyVisible(points []Vector3) bool {
@@ -278,7 +294,7 @@ func arcsAlong(points []Vector2, kept []int) []circleRun {
 			start++
 			continue
 		}
-		best.full = closed && start == 0 && end == len(corners)-1
+		best.full = closed && start == 0 && end == len(corners)-1 && best.sweep > Radians(fullCircleDegrees)
 		runs = append(runs, circleRun{piece: best, indices: kept[start : end+1]})
 		start = end
 	}
