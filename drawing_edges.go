@@ -104,7 +104,7 @@ const (
 	// insideMargin lets a triangle cover points on its border, up to rounding (relative to the
 	// edge length), so that the seams between the triangles of one face do not let hidden
 	// lines show through.
-	insideMargin = 1e-12
+	insideMargin = 1e-9 // mm; the rounding of a cross product of view coordinates reaches 1e-12 and differs between processors
 	gridPadding  = 1e-7 // mm; far above rounding noise, far below any feature
 	depthMargin  = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
 )
