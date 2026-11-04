@@ -83,7 +83,9 @@ func writeSVGMark(w io.Writer, m mark, o drawingOptions) {
 // that produced it, so that the output does not change with the last bits of floating point
 // rounding (which can differ between processor architectures).
 func number(x float64) string {
-	text := strconv.FormatFloat(x, 'f', 2, 64)
+	// Whole micrometers first: a value on a rounding boundary (22.575) then rounds the same way
+	// whatever its last bits are.
+	text := strconv.FormatFloat(float64(toMicrometers(x))/1000, 'f', 2, 64)
 	text = strings.TrimRight(strings.TrimRight(text, "0"), ".")
 	if text == "-0" {
 		return "0"

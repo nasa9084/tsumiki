@@ -105,6 +105,7 @@ const (
 	// edge length), so that the seams between the triangles of one face do not let hidden
 	// lines show through.
 	insideMargin = 1e-12
+	gridPadding  = 1e-7 // mm; far above rounding noise, far below any feature
 	depthMargin  = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
 )
 
@@ -148,6 +149,9 @@ func (b *depthBuffer) buildGrid(low, high Vector2) {
 			triangleLow = Vector2{math.Min(triangleLow.X, corner.X), math.Min(triangleLow.Y, corner.Y)}
 			triangleHigh = Vector2{math.Max(triangleHigh.X, corner.X), math.Max(triangleHigh.Y, corner.Y)}
 		}
+		// Pad the box a little: a point on the border of a triangle may fall into the next cell
+		// by the last bits of rounding, and must still find the triangle there.
+		triangleLow, triangleHigh = triangleLow.Sub(Vector2{gridPadding, gridPadding}), triangleHigh.Add(Vector2{gridPadding, gridPadding})
 		firstColumn, firstRow := b.cellOf(triangleLow)
 		lastColumn, lastRow := b.cellOf(triangleHigh)
 		for column := firstColumn; column <= lastColumn; column++ {
