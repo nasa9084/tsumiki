@@ -39,16 +39,23 @@ func extrudeMesh(plane Plane, regions []Region, distance, taperDegrees, start fl
 		points, triangles := triangulateRegion(r.Outer, r.Holes)
 		n := len(points)
 		var top []Vector2
-		for _, l := range loops {
-			if offsetDistance == 0 {
+		topTriangles := triangles
+		if offsetDistance != 0 {
+			var topLoops []Loop
+			for _, l := range loops {
+				shiftedLoop := offsetLoop(l, offsetDistance)
+				if err := checkOffset(l, shiftedLoop); err != nil {
+					return nil, fmt.Errorf("taper %.3g° over %.4g mm: %w", taperDegrees, height, err)
+				}
+				topLoops = append(topLoops, shiftedLoop)
+			}
+			// the offset moves points unevenly, so a triangle of the base can fold over on the top:
+			// triangulate the top on its own (its points come out in the same order as the base's)
+			top, topTriangles = triangulateRegion(topLoops[0], topLoops[1:])
+		} else {
+			for _, l := range loops {
 				top = append(top, l...)
-				continue
 			}
-			shiftedLoop := offsetLoop(l, offsetDistance)
-			if err := checkOffset(l, shiftedLoop); err != nil {
-				return nil, fmt.Errorf("taper %.3g° over %.4g mm: %w", taperDegrees, height, err)
-			}
-			top = append(top, shiftedLoop...)
 		}
 		regionMesh := &Mesh{}
 		for _, p := range points {
@@ -58,7 +65,9 @@ func extrudeMesh(plane Plane, regions []Region, distance, taperDegrees, start fl
 			regionMesh.Vertices = append(regionMesh.Vertices, Vector3{p.X, p.Y, height})
 		}
 		for _, t := range triangles {
-			regionMesh.Triangles = append(regionMesh.Triangles, Triangle{t[0], t[2], t[1]})             // bottom faces -N
+			regionMesh.Triangles = append(regionMesh.Triangles, Triangle{t[0], t[2], t[1]}) // bottom faces -N
+		}
+		for _, t := range topTriangles {
 			regionMesh.Triangles = append(regionMesh.Triangles, Triangle{t[0] + n, t[1] + n, t[2] + n}) // top faces +N
 		}
 		base := 0

@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"github.com/nasa9084/tsumiki"
+	"github.com/nasa9084/tsumiki/cmd/timercam/internal/bevel"
 	"github.com/nasa9084/tsumiki/cmd/timercam/internal/thread"
 	"github.com/nasa9084/tsumiki/modelcmd"
 )
@@ -22,13 +23,15 @@ const (
 	notchCount     = 12
 	notchRadius    = 1.0
 	tipChamferSize = 0.8 // 45° chamfer at the tip, to find the nut easily
+	knobChamfer    = 0.6 // 45° on the top and bottom edges of the knob
 )
 
 func build(_ io.Writer) (*tsumiki.Part, error) {
 	part := tsumiki.NewPart("timercam screw")
 
-	knob := tsumiki.NewSketch(tsumiki.XY(0)).Circle(0, 0, knobRadius)
-	part.Extrude(knob, knobThickness)
+	bevel.Extrude(part, func(plane tsumiki.Plane) *tsumiki.Sketch {
+		return tsumiki.NewSketch(plane).Circle(0, 0, knobRadius)
+	}, 0, knobThickness, knobChamfer)
 	notches := tsumiki.NewSketch(tsumiki.XY(0))
 	for k := range notchCount {
 		angle := 2 * math.Pi * float64(k) / notchCount

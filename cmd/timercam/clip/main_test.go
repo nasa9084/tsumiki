@@ -31,6 +31,12 @@ func TestClipMatchesTheSpecPoints(t *testing.T) {
 		{"beside the slit", tsumiki.Vector3{X: 38.9, Y: 2, Z: 3}, true},
 		{"the socket above the opening", tsumiki.Vector3{X: 39, Y: 6, Z: 20}, true},
 		{"the 45° roof over the flat front", tsumiki.Vector3{X: 45, Y: 0, Z: 20}, false},
+		{"the fillet between the clip and the arm", tsumiki.Vector3{X: 12.1, Y: 5.1, Z: 10}, true},
+		{"outside the fillet", tsumiki.Vector3{X: 12.5, Y: 7.5, Z: 10}, false},
+		{"the bottom chamfer", tsumiki.Vector3{X: 0, Y: 12.2, Z: 0.3}, false},
+		{"above the bottom chamfer", tsumiki.Vector3{X: 0, Y: 12.2, Z: 1}, true},
+		{"the top chamfer", tsumiki.Vector3{X: 0, Y: 12.2, Z: 20.7}, false},
+		{"the rounded outer corner of the opening", tsumiki.Vector3{X: -9.6, Y: 7.85, Z: 10}, false},
 		{"behind the nut thread", tsumiki.Vector3{X: 37.4 - 4.3, Y: 0, Z: 19}, true},
 	} {
 		if got := mesh.Contains(c.point); got != c.inside {

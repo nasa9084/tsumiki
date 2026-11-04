@@ -25,6 +25,11 @@ func TestBandMatchesTheSpecPoints(t *testing.T) {
 		{"the neck", tsumiki.Vector3{X: 0, Y: 15, Z: 7}, true},
 		{"beside the neck", tsumiki.Vector3{X: 0, Y: 15, Z: 10.5}, false},
 		{"the fillet at the root of the neck", tsumiki.Vector3{X: 0, Y: 12.6, Z: 10.5}, true},
+		{"the rounded outer corner", tsumiki.Vector3{X: 14.1, Y: 12.1, Z: 7}, false},
+		{"the outer bottom chamfer", tsumiki.Vector3{X: 14.2, Y: 0, Z: 0.2}, false},
+		{"the outer top chamfer", tsumiki.Vector3{X: 14.2, Y: 0, Z: 13.8}, false},
+		{"the inner lead-in at the bottom", tsumiki.Vector3{X: 12.45, Y: 0, Z: 0.1}, false},
+		{"the inner top edge stays square", tsumiki.Vector3{X: 12.45, Y: 0, Z: 13.9}, true},
 		{"the ball", tsumiki.Vector3{X: 0, Y: 24.3, Z: 7}, true},
 		{"above the ball", tsumiki.Vector3{X: 0, Y: 24.3, Z: 13.2}, false},
 	} {

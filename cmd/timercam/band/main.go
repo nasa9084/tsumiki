@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/nasa9084/tsumiki"
+	"github.com/nasa9084/tsumiki/cmd/timercam/internal/bevel"
 	"github.com/nasa9084/tsumiki/modelcmd"
 )
 
@@ -24,6 +25,10 @@ const (
 	neckFillet     = 1.5
 	ballRadius     = 6.0
 	ballAxisHeight = bandHeight / 2
+	outerCorner    = 2.5 // radius of the outer vertical edges
+	innerCorner    = 0.8 // small enough to clear a square camera corner (0.33 < 0.3·√2 + 0.3)
+	edgeChamfer    = 0.6 // 45° on the outer top and bottom edges
+	leadIn         = 0.6 // 45° on the inner bottom edge, to slide the band on easily
 )
 
 func outerWidth() float64 { return cameraWidth + 2*clearance + 2*wallThickness }
@@ -39,10 +44,17 @@ func ballCenterY() float64 { return backFace() + neckLength + ballRadius }
 func build(_ io.Writer) (*tsumiki.Part, error) {
 	part := tsumiki.NewPart("timercam band")
 
-	band := tsumiki.NewSketch(tsumiki.XY(0)).
-		Rect(0, 0, outerWidth(), outerDepth()).
-		Rect(0, 0, cameraWidth+2*clearance, cameraDepth+2*clearance)
-	part.Extrude(band, bandHeight)
+	// the outside, rounded and chamfered; the inner top edge stays sharp because the lens bump
+	// rests on it
+	bevel.Extrude(part, func(plane tsumiki.Plane) *tsumiki.Sketch {
+		return tsumiki.NewSketch(plane).RoundedRect(0, 0, outerWidth(), outerDepth(), outerCorner, 0)
+	}, 0, bandHeight, edgeChamfer)
+	innerWidth, innerDepth := cameraWidth+2*clearance, cameraDepth+2*clearance
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).
+		RoundedRect(0, 0, innerWidth, innerDepth, innerCorner, 0), bandHeight, tsumiki.Cut())
+	part.Extrude(tsumiki.NewSketch(tsumiki.XY(0)).
+		RoundedRect(0, 0, innerWidth+2*leadIn, innerDepth+2*leadIn, innerCorner+leadIn, 0),
+		leadIn, tsumiki.Taper(-45), tsumiki.Cut())
 
 	// the neck with a concave fillet at its root, revolved about the line x = 0, z = ballAxisHeight
 	// (the sketch's u is the distance from that line, v is y)

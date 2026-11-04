@@ -34,6 +34,7 @@ func TestScrewThreadFollowsTheProfile(t *testing.T) {
 	}{
 		{"the knob", tsumiki.Vector3{X: 6, Y: 0, Z: 2}, true},
 		{"a notch in the knob", tsumiki.Vector3{X: 7.5, Y: 0, Z: 2}, false},
+		{"the chamfered bottom edge of the knob", tsumiki.Vector3{X: 0, Y: 7.85, Z: 0.1}, false},
 		{"the chamfered tip edge", tsumiki.Vector3{X: 3.6, Y: 0, Z: 9.9}, false},
 		{"the middle of the tip", tsumiki.Vector3{X: 0, Y: 0, Z: 9.9}, true},
 	} {
