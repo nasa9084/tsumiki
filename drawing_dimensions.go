@@ -149,7 +149,16 @@ func (p *panel) featureLabel(group []sizedFeature, space *occupancy, o drawingOp
 		size := p.boxSize()
 		return math.Min(math.Min(r.X, size.X-r.X), math.Min(r.Y, size.Y-r.Y))
 	}
-	slices.SortStableFunc(members, func(a, b sizedFeature) int { return cmp.Compare(edgeDistance(a), edgeDistance(b)) })
+	// Symmetric features are equally far from the edge, but only up to the last bits, which differ
+	// between processors (arm64 fuses multiply-adds). Compare at 1 µm and break ties by position so
+	// that every machine picks the same member.
+	slices.SortStableFunc(members, func(a, b sizedFeature) int {
+		return cmp.Or(
+			cmp.Compare(toMicrometers(edgeDistance(a)), toMicrometers(edgeDistance(b))),
+			cmp.Compare(toMicrometers(a.center.X), toMicrometers(b.center.X)),
+			cmp.Compare(toMicrometers(a.center.Y), toMicrometers(b.center.Y)),
+		)
+	})
 	var best []mark
 	bestCost := math.MaxInt
 	for _, member := range members[:min(len(members), 6)] {
@@ -174,6 +183,9 @@ func (p *panel) featureLabel(group []sizedFeature, space *occupancy, o drawingOp
 	space.add(best)
 	return best
 }
+
+// toMicrometers rounds a length in millimeters to whole micrometers.
+func toMicrometers(millimeters float64) int64 { return int64(math.Round(millimeters * 1000)) }
 
 // leaderLabel is a label at the end of a leader that starts at at and runs reach millimeters
 // along direction, then a short way sideways.
