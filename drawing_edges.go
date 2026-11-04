@@ -106,10 +106,11 @@ const (
 	// insideMargin lets a triangle cover points on its border, up to rounding (relative to the
 	// edge length), so that the seams between the triangles of one face do not let hidden
 	// lines show through.
-	insideMargin  = 1e-9 // mm; the rounding of a cross product of view coordinates reaches 1e-12 and differs between processors
-	featureMargin = 1e-9
-	gridPadding   = 1e-7 // mm; far above rounding noise, far below any feature
-	depthMargin   = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
+	insideMargin    = 1e-9 // mm; the rounding of a cross product of view coordinates reaches 1e-12 and differs between processors
+	minTriangleArea = 1e-8 // mm², twice the area
+	featureMargin   = 1e-9
+	gridPadding     = 1e-7 // mm; far above rounding noise, far below any feature
+	depthMargin     = 1e-4 // a surface must be this much nearer than a point to hide it (mm)
 )
 
 func newDepthBuffer(set *edgeSet, c camera) *depthBuffer {
@@ -205,8 +206,8 @@ func (b *depthBuffer) nearest(s Vector2) (float64, bool) {
 func (t *projectedTriangle) depthAt(s Vector2) (float64, bool) {
 	var weights [3]float64
 	area := twiceSignedArea(t.corners[0], t.corners[1], t.corners[2])
-	if area <= 0 {
-		return 0, false
+	if area <= minTriangleArea {
+		return 0, false // a sliver seen edge-on: its depth is all rounding
 	}
 	for k := range 3 {
 		from, to := t.corners[(k+1)%3], t.corners[(k+2)%3]
